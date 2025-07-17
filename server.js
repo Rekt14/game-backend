@@ -33,7 +33,7 @@ app.get("/records", async (req, res) => {
   try {
     await client.connect();
     const db = client.db(dbName);
-    const records = await db.collection("records").find().sort({ score: -1 }).toArray();
+    const records = await db.collection("records").find().sort({ score: -1 }).limit(5).toArray();
     res.status(200).json(records);
   } catch (err) {
     res.status(500).send("Errore nel recupero");
