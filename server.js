@@ -1,43 +1,39 @@
+// server.js
 const express = require("express");
+const mongoose = require("mongoose");
 const cors = require("cors");
-const { MongoClient } = require("mongodb");
+require("dotenv").config();
 
 const app = express();
-const port = process.env.PORT || 3000;
-
 app.use(cors());
 app.use(express.json());
 
-// Puoi usare la variabile d'ambiente MONGO_URI o scrivere direttamente l'URI qui:
-const uri = process.env.MONGO_URI; 
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
 
-const client = new MongoClient(uri);
-let collection;
+// Schema
+const Record = mongoose.model("Record", {
+  name: String,
+  score: Number,
+  date: { type: Date, default: Date.now },
+});
 
-async function connectToDB() {
-  try {
-    await client.connect();
-    const db = client.db("test"); // nome del tuo DB
-    collection = db.collection("records"); // nome della collection
-    console.log("Connesso a MongoDB");
-  } catch (err) {
-    console.error("Errore di connessione a MongoDB:", err);
-  }
-}
-
-connectToDB();
-
-// Rotta GET /records
+// Get top 10 records
 app.get("/records", async (req, res) => {
-  try {
-    const records = await collection.find({}).toArray();
-    res.json(records);
-  } catch (err) {
-    res.status(500).json({ error: "Errore nel recupero dei dati" });
-  }
+  const records = await Record.find().sort({ score: -1 }).limit(10);
+  res.json(records);
 });
 
-// Avvia il server
-app.listen(port, () => {
-  console.log(`Server avviato su http://localhost:${port}`);
+// Add a record
+app.post("/records", async (req, res) => {
+  const { name, score } = req.body;
+  const newRecord = new Record({ name, score });
+  await newRecord.save();
+  res.status(201).json({ message: "Record salvato!" });
 });
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log("Server attivo su porta", PORT));
