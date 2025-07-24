@@ -71,6 +71,7 @@ io.on("connection", (socket) => {
   console.log("🟢 Connessione socket:", socket.id);
   let heartbeatInterval;
 
+  // ✅ Registrazione giocatore online
   socket.on("registerPlayer", async (name) => {
     console.log(`🧍 Registrazione giocatore: ${name} (${socket.id})`);
     try {
@@ -80,7 +81,8 @@ io.on("connection", (socket) => {
         lastSeen: new Date()
       });
 
-      // 🕒 Mantieni attivo con aggiornamento ogni 10 secondi
+      socket.data.name = name;
+
       heartbeatInterval = setInterval(async () => {
         await onlinePlayersCollection.updateOne(
           { socketId: socket.id },
@@ -92,13 +94,85 @@ io.on("connection", (socket) => {
     }
   });
 
+  // 🎮 Crea stanza multiplayer
+  socket.on("createRoom", async ({ name }, callback) => {
+    const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+    try {
+      await matchesCollection.insertOne({
+        roomCode,
+        players: [{ socketId: socket.id, name }],
+        createdAt: new Date()
+      });
+
+      socket.join(roomCode);
+      socket.data.name = name;
+      socket.data.roomCode = roomCode;
+
+      console.log(`🛠️  Stanza creata: ${roomCode} da ${name}`);
+      callback({ success: true, roomCode });
+    } catch (err) {
+      console.error("❌ Errore creazione stanza:", err);
+      callback({ success: false, error: "Errore creazione stanza" });
+    }
+  });
+
+  // 🎮 Unisciti a una stanza esistente
+  socket.on("joinRoom", async ({ name, roomCode }, callback) => {
+    const match = await matchesCollection.findOne({ roomCode });
+
+    if (!match) return callback({ success: false, error: "Stanza non trovata" });
+    if (match.players.length >= 2) return callback({ success: false, error: "Stanza piena" });
+
+    try {
+      await matchesCollection.updateOne(
+        { roomCode },
+        { $push: { players: { socketId: socket.id, name } } }
+      );
+
+      socket.join(roomCode);
+      socket.data.name = name;
+      socket.data.roomCode = roomCode;
+
+      const otherPlayer = match.players[0]; // Giocatore che ha creato la stanza
+      const opponentName = otherPlayer.name;
+
+      // 🔔 Notifica entrambi i giocatori
+      io.to(roomCode).emit("bothPlayersReady", {
+        opponent1: opponentName,
+        opponent2: name
+      });
+
+      console.log(`👥 ${name} si è unito alla stanza ${roomCode} con ${opponentName}`);
+      callback({ success: true });
+    } catch (err) {
+      console.error("❌ Errore unione stanza:", err);
+      callback({ success: false, error: "Errore unione stanza" });
+    }
+  });
+
+  // 🔌 Disconnessione
   socket.on("disconnect", async () => {
     console.log("🔴 Disconnessione:", socket.id);
     try {
       clearInterval(heartbeatInterval);
       await onlinePlayersCollection.deleteOne({ socketId: socket.id });
+
+      const roomCode = socket.data?.roomCode;
+      if (roomCode) {
+        await matchesCollection.updateOne(
+          { roomCode },
+          { $pull: { players: { socketId: socket.id } } }
+        );
+
+        const room = await matchesCollection.findOne({ roomCode });
+
+        if (!room || room.players.length === 0) {
+          await matchesCollection.deleteOne({ roomCode });
+          console.log(`🗑️ Stanza ${roomCode} eliminata (vuota)`);
+        }
+      }
     } catch (err) {
-      console.error("❌ Errore rimozione giocatore:", err);
+      console.error("❌ Errore rimozione stanza/giocatore:", err);
     }
   });
 });
