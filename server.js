@@ -137,11 +137,12 @@ io.on("connection", (socket) => {
       const opponentName = otherPlayer.name;
 
       // 🔔 Notifica entrambi i giocatori
-      io.to(roomCode).emit("bothPlayersReady", {
-        opponent1: opponentName,
-        opponent2: name
-      });
-
+   // Aggiungi creatorSocketId nella risposta
+io.to(roomCode).emit("bothPlayersReady", {
+  opponent1: otherPlayer.name,
+  opponent2: name,
+  creatorSocketId: otherPlayer.socketId
+});
       console.log(`👥 ${name} si è unito alla stanza ${roomCode} con ${opponentName}`);
       callback({ success: true });
     } catch (err) {
