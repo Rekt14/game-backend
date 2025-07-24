@@ -1,12 +1,12 @@
 // server.js
 const express = require("express");
-const http = require("http"); // <--- per usare http con socket
+const http = require("http");
 const cors = require("cors");
 const { Server } = require("socket.io");
 const { MongoClient, ObjectId } = require("mongodb");
 
 const app = express();
-const server = http.createServer(app); // <--- wrap express
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] }
 });
@@ -16,6 +16,7 @@ const uri = process.env.MONGO_URI;
 const dbName = "gameDB";
 let recordsCollection;
 let matchesCollection;
+let onlinePlayersCollection;
 
 app.use(cors());
 app.use(express.json());
@@ -26,6 +27,7 @@ async function connectToDatabase() {
   const db = client.db(dbName);
   recordsCollection = db.collection("records");
   matchesCollection = db.collection("matches");
+  onlinePlayersCollection = db.collection("onlinePlayers");
   console.log("✅ Connesso a MongoDB");
 }
 
@@ -50,45 +52,61 @@ app.get("/records", async (req, res) => {
   }
 });
 
-// 🎮 Socket.io - eventi realtime
-let waitingPlayer = null;
+// ✅ Nuova API: numero giocatori online
+app.get("/online-players", async (req, res) => {
+  try {
+    // Rimuove i giocatori inattivi da oltre 30 secondi
+    const cutoff = new Date(Date.now() - 30 * 1000);
+    await onlinePlayersCollection.deleteMany({ lastSeen: { $lt: cutoff } });
 
-io.on("connection", (socket) => {
-  console.log("🟢 Nuovo giocatore:", socket.id);
-
-  if (waitingPlayer) {
-    const room = `${waitingPlayer.id}#${socket.id}`;
-    socket.join(room);
-    waitingPlayer.join(room);
-    io.to(room).emit("startGame", { room });
-    waitingPlayer = null;
-  } else {
-    waitingPlayer = socket;
+    const count = await onlinePlayersCollection.countDocuments();
+    res.json({ online: count });
+  } catch (err) {
+    res.status(500).send("Errore nel conteggio giocatori online");
   }
+});
 
-  socket.on("playCard", async (data) => {
-    const { room, matchId, player, card } = data;
+// 🎮 Socket.io - gestione giocatori online
+io.on("connection", (socket) => {
+  console.log("🟢 Connessione socket:", socket.id);
+  let heartbeatInterval;
+
+  socket.on("registerPlayer", async (name) => {
+    console.log(`🧍 Registrazione giocatore: ${name} (${socket.id})`);
     try {
-      await matchesCollection.updateOne(
-        { _id: new ObjectId(matchId) },
-        { $push: { moves: { player, card, time: new Date() } } }
-      );
+      await onlinePlayersCollection.insertOne({
+        socketId: socket.id,
+        name,
+        lastSeen: new Date()
+      });
+
+      // 🕒 Mantieni attivo con aggiornamento ogni 10 secondi
+      heartbeatInterval = setInterval(async () => {
+        await onlinePlayersCollection.updateOne(
+          { socketId: socket.id },
+          { $set: { lastSeen: new Date() } }
+        );
+      }, 10000);
     } catch (err) {
-      console.error("Errore salvataggio mossa:", err);
+      console.error("❌ Errore registrazione giocatore:", err);
     }
-    socket.to(room).emit("opponentPlayed", { player, card });
   });
 
-  socket.on("disconnect", () => {
-    console.log("🔴 Giocatore disconnesso:", socket.id);
-    if (waitingPlayer?.id === socket.id) waitingPlayer = null;
+  socket.on("disconnect", async () => {
+    console.log("🔴 Disconnessione:", socket.id);
+    try {
+      clearInterval(heartbeatInterval);
+      await onlinePlayersCollection.deleteOne({ socketId: socket.id });
+    } catch (err) {
+      console.error("❌ Errore rimozione giocatore:", err);
+    }
   });
 });
 
-// 🚀 Avvia il server
+// 🚀 Avvio server
 connectToDatabase().then(() => {
   const port = process.env.PORT || 3000;
   server.listen(port, () => {
-    console.log(`🚀 Backend + Socket server su http://localhost:${port}`);
+    console.log(`🚀 Server attivo su http://localhost:${port}`);
   });
 });
