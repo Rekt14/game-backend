@@ -117,39 +117,47 @@ io.on("connection", (socket) => {
   });
 
   // 🎮 Unisciti a una stanza esistente
-  socket.on("joinRoom", async ({ name, roomCode }, callback) => {
-    const match = await matchesCollection.findOne({ roomCode });
+ // 🎮 Unisciti a una stanza esistente
+socket.on("joinRoom", async ({ name, roomCode }, callback) => {
+  const match = await matchesCollection.findOne({ roomCode });
 
-    if (!match) return callback({ success: false, error: "Stanza non trovata" });
-    if (match.players.length >= 2) return callback({ success: false, error: "Stanza piena" });
+  if (!match) return callback({ success: false, error: "Stanza non trovata" });
+  if (match.players.length >= 2) return callback({ success: false, error: "Stanza piena" });
 
-    try {
-      await matchesCollection.updateOne(
-        { roomCode },
-        { $push: { players: { socketId: socket.id, name } } }
-      );
+  try {
+    await matchesCollection.updateOne(
+      { roomCode },
+      { $push: { players: { socketId: socket.id, name } } }
+    );
 
-      socket.join(roomCode);
-      socket.data.name = name;
-      socket.data.roomCode = roomCode;
+    socket.join(roomCode);
+    socket.data.name = name;
+    socket.data.roomCode = roomCode;
 
-      const otherPlayer = match.players[0]; // Giocatore che ha creato la stanza
-      const opponentName = otherPlayer.name;
+    const otherPlayer = match.players[0]; // Creatore stanza
+    const opponentName = otherPlayer.name;
 
-      // 🔔 Notifica entrambi i giocatori
-   // Aggiungi creatorSocketId nella risposta
-io.to(roomCode).emit("bothPlayersReady", {
-  opponent1: otherPlayer.name,
-  opponent2: name,
-  creatorSocketId: otherPlayer.socketId
+    // 🔔 Notifica entrambi i giocatori + invia socketId creatore
+    io.to(roomCode).emit("bothPlayersReady", {
+      opponent1: opponentName,
+      opponent2: name,
+      creatorSocketId: otherPlayer.socketId
+    });
+
+    console.log(`👥 ${name} si è unito alla stanza ${roomCode} con ${opponentName}`);
+    callback({ success: true });
+  } catch (err) {
+    console.error("❌ Errore unione stanza:", err);
+    callback({ success: false, error: "Errore unione stanza" });
+  }
 });
-      console.log(`👥 ${name} si è unito alla stanza ${roomCode} con ${opponentName}`);
-      callback({ success: true });
-    } catch (err) {
-      console.error("❌ Errore unione stanza:", err);
-      callback({ success: false, error: "Errore unione stanza" });
-    }
-  });
+
+  socket.on("startGame", () => {
+  const roomCode = socket.data?.roomCode;
+  if (roomCode) {
+    io.to(roomCode).emit("startGame");
+  }
+});
 
   // 🔌 Disconnessione
   socket.on("disconnect", async () => {
