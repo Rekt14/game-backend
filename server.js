@@ -116,7 +116,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 🎮 Unisciti a una stanza esistente
  // 🎮 Unisciti a una stanza esistente
 socket.on("joinRoom", async ({ name, roomCode }, callback) => {
   const match = await matchesCollection.findOne({ roomCode });
@@ -152,12 +151,158 @@ socket.on("joinRoom", async ({ name, roomCode }, callback) => {
   }
 });
 
-  socket.on("startGame", () => {
+
+  const gameStates = {}; // Stato delle partite attive in memoria
+
+ socket.on("startGame", async () => {
   const roomCode = socket.data?.roomCode;
-  if (roomCode) {
-    io.to(roomCode).emit("startGame");
+  if (!roomCode) return;
+
+  const room = await matchesCollection.findOne({ roomCode });
+  if (!room || room.players.length < 2) return;
+
+  // 🔁 Crea mazzo
+  const suits = ["Cuori", "Quadri", "Fiori", "Picche"];
+  const values = ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
+  let deck = [];
+  for (let suit of suits) {
+    for (let value of values) {
+      deck.push({ suit, value });
+    }
+  }
+
+  // Mescola
+  deck = deck.sort(() => Math.random() - 0.5);
+
+  const round = 1;
+  const [player1, player2] = room.players;
+  const p1Cards = deck.splice(0, round);
+  const p2Cards = deck.splice(0, round);
+
+  // Scegli casualmente chi inizia
+  const first = Math.random() < 0.5 ? player1.socketId : player2.socketId;
+
+  // 🔐 Salva lo stato in memoria
+  gameStates[roomCode] = {
+    round,
+    deck,
+    players: {
+      [player1.socketId]: {
+        name: player1.name,
+        hand: p1Cards,
+        bet: null,
+        playedCard: null,
+        score: 0
+      },
+      [player2.socketId]: {
+        name: player2.name,
+        hand: p2Cards,
+        bet: null,
+        playedCard: null,
+        score: 0
+      }
+    },
+    firstToReveal: first
+  };
+
+  // 📤 Invia le mani ai giocatori
+  io.to(player1.socketId).emit("dealCards", {
+    yourCards: p1Cards,
+    opponentName: player2.name,
+    round,
+    firstToReveal: first === player1.socketId ? "you" : "opponent"
+  });
+
+  io.to(player2.socketId).emit("dealCards", {
+    yourCards: p2Cards,
+    opponentName: player1.name,
+    round,
+    firstToReveal: first === player2.socketId ? "you" : "opponent"
+  });
+
+  console.log(`🃏 Partita avviata nella stanza ${roomCode}`);
+});
+
+  socket.on("playerBet", ({ roomCode, bet }) => {
+  const game = gameStates[roomCode];
+  if (!game || !game.players[socket.id]) return;
+
+  game.players[socket.id].bet = bet;
+
+  const bets = Object.values(game.players).map(p => p.bet);
+  if (bets.every(b => b !== null)) {
+    for (let playerSocketId in game.players) {
+      const opponentId = Object.keys(game.players).find(id => id !== playerSocketId);
+      io.to(playerSocketId).emit("bothBetsPlaced", {
+        yourBet: game.players[playerSocketId].bet,
+        opponentBet: game.players[opponentId].bet
+      });
+    }
   }
 });
+
+  socket.on("playCard", ({ roomCode, card }) => {
+  const game = gameStates[roomCode];
+  if (!game || !game.players[socket.id]) return;
+
+  game.players[socket.id].playedCard = card;
+
+  const playerIds = Object.keys(game.players);
+  const [p1, p2] = playerIds;
+  const card1 = game.players[p1].playedCard;
+  const card2 = game.players[p2].playedCard;
+
+  if (card1 && card2) {
+    const winnerSocketId = determineWinner(card1, card2);
+    if (winnerSocketId) {
+      game.players[winnerSocketId].score += 1;
+    }
+
+    io.to(roomCode).emit("roundResult", {
+      card1,
+      card2,
+      winner: winnerSocketId,
+      scores: {
+        [p1]: game.players[p1].score,
+        [p2]: game.players[p2].score
+      }
+    });
+
+    // 🧼 Pulisci per la prossima mano
+    game.players[p1].playedCard = null;
+    game.players[p2].playedCard = null;
+  }
+});
+
+  function determineWinner(card1, card2) {
+  const valueMap = {
+    A: 14, K: 13, Q: 12, J: 11,
+    10: 10, 9: 9, 8: 8, 7: 7,
+    6: 6, 5: 5, 4: 4, 3: 3, 2: 2
+  };
+  const suitStrength = {
+    Denari: 4,
+    Spade: 3,
+    Bastoni: 2,
+    Coppe: 1
+  };
+
+  const value1 = valueMap[card1.value] || parseInt(card1.value);
+  const value2 = valueMap[card2.value] || parseInt(card2.value);
+
+  if (value1 > value2) return card1.owner;
+  if (value2 > value1) return card2.owner;
+
+  // In caso di parità, vince il seme più forte
+  const suit1 = suitStrength[card1.suit] || 0;
+  const suit2 = suitStrength[card2.suit] || 0;
+
+  card.owner = socket.id; 
+  return suit1 > suit2 ? card1.owner : card2.owner;
+}
+
+
+
 
   // 🔌 Disconnessione
   socket.on("disconnect", async () => {
