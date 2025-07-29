@@ -221,6 +221,41 @@ socket.on("startRoundRequest", async () => {
   console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}`);
 });
 
+// Gestione Scommesse
+  socket.on("playerBet", ({ roomCode, bet }) => {
+  const game = gameStates[roomCode];
+  if (!game || !game.players[socket.id]) return;
+
+  // 🔐 Salva la scommessa di questo giocatore
+  game.players[socket.id].bet = bet;
+  console.log(`🎯 ${socket.id} ha scommesso ${bet} nella stanza ${roomCode}`);
+
+  // 🔎 Verifica se anche l'altro ha scommesso
+  const playerIds = Object.keys(game.players);
+  const allBets = playerIds.map(id => game.players[id].bet);
+
+  // 👥 Se entrambi hanno scommesso, invia a entrambi
+  if (allBets.every(b => b !== null)) {
+    playerIds.forEach(playerId => {
+      const opponentId = playerIds.find(id => id !== playerId);
+      io.to(playerId).emit("bothBetsPlaced", {
+        yourBet: game.players[playerId].bet,
+        opponentBet: game.players[opponentId].bet
+      });
+    });
+    return;
+  }
+
+  // ⏳ Se solo uno ha scommesso, avvisa l’altro che tocca a lui
+  const otherId = playerIds.find(id => id !== socket.id);
+  const otherPlayer = game.players[otherId];
+  if (otherPlayer && otherPlayer.bet === null) {
+    io.to(otherId).emit("opponentBetPlaced", {
+      opponentBet: bet
+    });
+  }
+});
+
   // 🔌 Disconnessione
   socket.on("disconnect", async () => {
     console.log("🔴 Disconnessione:", socket.id);
