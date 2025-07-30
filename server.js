@@ -5,6 +5,8 @@ const cors = require("cors");
 const { Server } = require("socket.io");
 const { MongoClient, ObjectId } = require("mongodb");
 
+const gameStates = {};
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -153,8 +155,7 @@ io.on("connection", (socket) => {
 
   // --- START OF GAME LOGIC ---
 
-  const gameStates = {}; 
-
+  
   socket.on("startRoundRequest", async () => {
     const roomCode = socket.data?.roomCode;
     if (!roomCode) return;
