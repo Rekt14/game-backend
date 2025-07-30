@@ -156,23 +156,22 @@ io.on("connection", (socket) => {
   // --- START OF GAME LOGIC ---
 
   
-  socket.on("startRoundRequest", async () => {
+socket.on("startRoundRequest", async () => {
     const roomCode = socket.data?.roomCode;
     if (!roomCode) return;
 
     const room = await matchesCollection.findOne({ roomCode });
     if (!room || room.players.length < 2) return;
 
-    // Prepara nuovo round
     const round = gameStates[roomCode]?.round + 1 || 1;
 
     const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
     const values = [2, 3, 4, 5, 6, 7, "Fante", "Cavallo", "Re", "Asso"];
     let deck = [];
     for (let suit of suits) {
-      for (let value of values) {
-        deck.push({ suit, value });
-      }
+        for (let value of values) {
+            deck.push({ suit, value });
+        }
     }
     deck = deck.sort(() => Math.random() - 0.5);
 
@@ -182,104 +181,271 @@ io.on("connection", (socket) => {
 
     const first = Math.random() < 0.5 ? player1.socketId : player2.socketId;
 
-    // Salva stato del round, inizializzando le scommesse a ""
     gameStates[roomCode] = {
-      round,
-      deck,
-      players: {
-        [player1.socketId]: {
-          name: player1.name,
-          hand: p1Cards,
-          bet: "", 
-          playedCard: null,
-          score: gameStates[roomCode]?.players[player1.socketId]?.score || 0
+        round,
+        deck,
+        players: {
+            [player1.socketId]: {
+                name: player1.name,
+                hand: p1Cards,
+                bet: "",
+                playedCard: null,
+                score: gameStates[roomCode]?.players[player1.socketId]?.score || 0
+            },
+            [player2.socketId]: {
+                name: player2.name,
+                hand: p2Cards,
+                bet: "",
+                playedCard: null,
+                score: gameStates[roomCode]?.players[player2.socketId]?.score || 0
+            }
         },
-        [player2.socketId]: {
-          name: player2.name,
-          hand: p2Cards,
-          bet: "", 
-          playedCard: null,
-          score: gameStates[roomCode]?.players[player2.socketId]?.score || 0
-        }
-      },
-      firstToReveal: first
+        firstToReveal: first
     };
-console.log(`[Backend] New round initialized for room ${roomCode}. Player bets are:`, gameStates[roomCode].players);
-    // Invia i dati del round a entrambi i giocatori, includendo il nome dell'avversario
-    // 🔁 Verso player1
+
     io.to(player1.socketId).emit("startRoundData", {
-      round,
-      yourCards: p1Cards,
-      opponent1Cards: p2Cards,
-      firstToReveal: first === player1.socketId ? "you" : "opponent",
-      opponentName: player2.name
+        round,
+        yourCards: p1Cards,
+        opponent1Cards: p2Cards, // Questo nome potrebbe essere fuorviante se non gestisci 1vs1
+        firstToReveal: first === player1.socketId ? "you" : "opponent",
+        opponentName: player2.name
     });
 
-    // 🔁 Verso player2
     io.to(player2.socketId).emit("startRoundData", {
-      round,
-      yourCards: p2Cards,
-      opponent1Cards: p1Cards,
-      firstToReveal: first === player2.socketId ? "you" : "opponent",
-      opponentName: player1.name
+        round,
+        yourCards: p2Cards,
+        opponent1Cards: p1Cards, // Questo nome potrebbe essere fuorviante se non gestisci 1vs1
+        firstToReveal: first === player2.socketId ? "you" : "opponent",
+        opponentName: player1.name
     });
 
     console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}`);
-  });
+});
 
-  // Gestione Scommesse
-  socket.on("playerBet", ({ roomCode, bet }) => {
-    console.log(`[Backend] Received 'playerBet' from socket ID: ${socket.id}, roomCode: ${roomCode}, bet: ${bet}`);
-      
+---
+
+socket.on("playerBet", ({ roomCode, bet }) => {
     const game = gameStates[roomCode];
-    if (!game) {
-      console.log(`[Backend ERROR] Game state not found for roomCode: ${roomCode}`);
-      return;
-    }
-    if (!game.players[socket.id]) {
-      console.log(`[Backend ERROR] Player not found in game state for socket ID: ${socket.id}`);
-      return;
+    if (!game || !game.players[socket.id]) {
+        return;
     }
 
-    // Salva la scommessa del giocatore corrente
     game.players[socket.id].bet = bet;
-    console.log(`[Backend] Player ${socket.id} bet: ${game.players[socket.id].bet}`);
 
-    // Verifica se anche l'altro ha scommesso
     const playerIds = Object.keys(game.players);
     const allBets = playerIds.map(id => game.players[id].bet);
-    console.log(`[Backend] Current bets in room ${roomCode}:`, allBets);
 
-    // Se entrambi hanno scommesso (cioè il valore non è una stringa vuota)
-    if (allBets.every(b => b !== "")) { 
-      console.log(`[Backend] Both players have placed their bets. Emitting 'bothBetsPlaced'.`);
-      playerIds.forEach(playerId => {
-        const opponentId = playerIds.find(id => id !== playerId);
-        io.to(playerId).emit("bothBetsPlaced", {
-          yourBet: game.players[playerId].bet,
-          opponentBet: game.players[opponentId].bet
+    if (allBets.every(b => b !== "")) {
+        playerIds.forEach(playerId => {
+            const opponentId = playerIds.find(id => id !== playerId);
+            io.to(playerId).emit("bothBetsPlaced", {
+                yourBet: game.players[playerId].bet,
+                opponentBet: game.players[opponentId].bet
+            });
         });
-      });
-      return; // Importante uscire qui dopo aver emesso bothBetsPlaced
+        return;
     }
 
-    // Se solo uno ha scommesso, avvisa l’altro che tocca a lui
     const otherId = playerIds.find(id => id !== socket.id);
     const otherPlayer = game.players[otherId];
-
-    // Verifica esplicitamente lo stato della scommessa dell'altro giocatore
-    console.log(`[Backend] Other player (${otherId}) bet status:`, otherPlayer ? otherPlayer.bet : 'N/A (player not found)');
-        
-    if (otherPlayer && otherPlayer.bet === "") { // Controlla che la scommessa dell'altro sia ancora una stringa vuota
-      console.log(`[Backend] Emitting 'opponentBetPlaced' to ${otherId} with opponentBet: ${bet}`);
-      io.to(otherId).emit("opponentBetPlaced", {
-        opponentBet: bet
-      });
-    } else if (otherPlayer && otherPlayer.bet !== "") {
-        console.log(`[Backend] Other player (${otherId}) has already placed a bet. Not emitting 'opponentBetPlaced'.`);
+    
+    // Questa condizione implica che "otherPlayer.bet !== """ non richiede alcuna azione.
+    // L'else if è stato rimosso in quanto non necessario e non esegue alcuna azione.
+    if (otherPlayer && otherPlayer.bet === "") {
+        io.to(otherId).emit("opponentBetPlaced", {
+            opponentBet: bet
+        });
     }
-  }); 
+});
 
+const valuePoints = {  
+  2: 2,
+  3: 3,
+  4: 4,
+  5: 5,
+  6: 6,
+  7: 7,
+  Fante: 8,
+  Cavallo: 9,
+  Re: 10,
+  Asso: 11};
+  
+const suitStrength = { 
+  Denari: 4,
+  Spade: 3,
+  Bastoni: 2,
+  Coppe: 1
+};
+
+function compareCards(c1, c2) {
+    const v1 = valuePoints[c1.value];
+    const v2 = valuePoints[c2.value];
+    if (v1 === v2) {
+        return suitStrength[c1.suit] > suitStrength[c2.suit];
+    }
+    return v1 > v2;
+}
+
+  async function processPlayedCards(roomCode, io) {
+    let game = gameStates[roomCode];
+    if (!game) return; 
+
+    const playerIds = Object.keys(game.players);
+    const player1Id = playerIds[0]; // Assumi il primo come Player1, il secondo come Player2
+    const player2Id = playerIds[1];
+
+    const player1 = game.players[player1Id];
+    const player2 = game.players[player2Id];
+
+    const card1 = player1.playedCard;
+    const card2 = player2.playedCard;
+
+    // 1. Determina il vincitore della mano
+    const player1WinsHand = compareCards(card1, card2);
+
+    // Aggiorna i conteggi delle mani vinte
+    if (player1WinsHand) {
+        player1.currentRoundWins++; // NUOVA VARIABILE per le vittorie nel round corrente
+        game.firstToReveal = player1Id; // Il vincitore della mano inizia il prossimo turno
+    } else {
+        player2.currentRoundWins++; // NUOVA VARIABILE
+        game.firstToReveal = player2Id; // Il vincitore della mano inizia il prossimo turno
+    }
+
+    // 2. Notifica entrambi i giocatori del risultato della mano
+    io.to(roomCode).emit("handResult", {
+        winnerId: player1WinsHand ? player1Id : player2Id,
+        player1Card: card1,
+        player2Card: card2,
+        player1Id: player1Id, // Invia gli ID per permettere al frontend di identificare i nomi
+        player2Id: player2Id,
+        player1Wins: player1.currentRoundWins,
+        player2Wins: player2.currentRoundWins
+    });
+
+    // 3. Resetta le carte giocate per il prossimo turno/mano
+    player1.playedCard = null;
+    player1.playedCardIndex = null;
+    player2.playedCard = null;
+    player2.playedCardIndex = null;
+
+    // 4. Controlla se il round è finito (tutte le carte sono state giocate)
+    if (player1.currentRoundWins + player2.currentRoundWins === game.round) {
+        // Round terminato! Calcola i punteggi finali del round
+        if (player1.currentRoundWins === player1.bet) {
+            player1.score += (10 + player1.bet);
+        } else {
+            player1.score -= Math.abs(player1.currentRoundWins - player1.bet);
+        }
+        if (player2.currentRoundWins === player2.bet) {
+            player2.score += (10 + player2.bet);
+        } else {
+            player2.score -= Math.abs(player2.currentRoundWins - player2.bet);
+        }
+
+        // 5. Notifica entrambi i giocatori che il round è finito e i punteggi finali
+        io.to(roomCode).emit("roundFinished", {
+            player1Score: player1.score,
+            player2Score: player2.score,
+            player1Wins: player1.currentRoundWins,
+            player2Wins: player2.currentRoundWins,
+            player1Id: player1Id,
+            player2Id: player2Id,
+            currentRound: game.round, // Per il controllo "round >= 10"
+            firstToReveal: game.firstToReveal // Chi inizia il prossimo round
+        });
+
+        // Resetta le scommesse e le mani vinte per il prossimo round
+        player1.bet = "";
+        player2.bet = "";
+        player1.currentRoundWins = 0;
+        player2.currentRoundWins = 0;
+
+        // Se il gioco è finito (round >= 10), gestisci la fine del gioco
+        if (game.round >= 10) {
+            io.to(roomCode).emit("gameOver", {
+                finalScores: {
+                    [player1Id]: player1.score,
+                    [player2Id]: player2.score
+                },
+                playerNames: { // Invia anche i nomi per comodità
+                    [player1Id]: player1.name,
+                    [player2Id]: player2.name
+                }
+            });
+            // Potresti voler eliminare la stanza da gameStates qui, o archiviarla
+            delete gameStates[roomCode];
+        }
+
+    } else {
+        // Round NON terminato, si passa alla prossima mano
+        io.to(roomCode).emit("nextHand", {
+            firstToReveal: game.firstToReveal,
+            player1Wins: player1.currentRoundWins,
+            player2Wins: player2.currentRoundWins
+        });
+    }
+
+    // 🚨 SALVA LO STATO AGGIORNATO NEL DB DOPO OGNI OPERAZIONE SIGNIFICATIVA 🚨
+    // Considera di chiamare questa operazione solo una volta alla fine di processPlayedCards
+    // per ridurre il numero di scritture sul DB.
+    await gamesCollection.updateOne(
+        { roomCode: roomCode },
+        { $set: game } // Salva l'intero oggetto game, che include players, round, firstToReveal, etc.
+    );
+}
+
+
+// Backend: Nel socket.on("playerCardPlayed", ...)
+socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
+    console.log(`[Backend] Received 'playerCardPlayed' from socket ID: ${socket.id}, roomCode: ${roomCode}, card:`, card);
+
+    let game = gameStates[roomCode];
+    if (!game) { /* ... error handling ... */ return; }
+    if (!game.players[socket.id]) { /* ... error handling ... */ return; }
+
+    // Registra la carta giocata e l'indice
+    game.players[socket.id].playedCard = card;
+    game.players[socket.id].playedCardIndex = cardIndex; // Salva l'indice per il frontend
+    
+    // Rimuovi la carta dalla mano logica del giocatore nel backend
+    // Usa filter per creare un nuovo array senza la carta giocata
+    game.players[socket.id].hand = game.players[socket.id].hand.filter(c => 
+        !(c.suit === card.suit && c.value === card.value)
+    );
+
+    console.log(`[Backend] Player ${socket.id} played card:`, card);
+
+    const playerIds = Object.keys(game.players);
+    const currentPlayerId = socket.id;
+    const opponentId = playerIds.find(id => id !== currentPlayerId);
+
+    const currentPlayerPlayed = game.players[currentPlayerId].playedCard !== null;
+    const opponentPlayed = game.players[opponentId].playedCard !== null;
+
+    if (currentPlayerPlayed && opponentPlayed) {
+        // Entrambi hanno giocato: chiama la funzione che processa il risultato della mano
+        await processPlayedCards(roomCode, io); // Chiama la funzione asincrona con await
+    } else {
+        // Solo un giocatore ha giocato: Avvisa l'altro che la carta è stata giocata
+        console.log(`[Backend] Player ${currentPlayerId} played. Emitting 'opponentCardPlayed' to ${opponentId}.`);
+        io.to(opponentId).emit("opponentCardPlayed", {
+            opponentCard: card,
+            opponentCardIndex: cardIndex, // Importante per l'UI dell'avversario
+            firstToReveal: game.firstToReveal // Invia anche chi sarà il firstToReveal dopo questa giocata (utile per evidenziare il turno)
+        });
+    }
+    
+    // 🚨 SALVA LO STATO AGGIORNATO DEL GIOCO NEL DB QUI
+    // È importante salvare dopo ogni modifica allo stato 'game'
+    await gamesCollection.updateOne(
+        { roomCode: roomCode },
+        { $set: game } // Salva l'intero oggetto game, include le modifiche a players, hand, playedCard ecc.
+    );
+});
+
+
+  
   // 🔌 Disconnessione
   socket.on("disconnect", async () => {
     console.log("🔴 Disconnessione:", socket.id);
