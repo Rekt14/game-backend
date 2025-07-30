@@ -203,7 +203,7 @@ io.on("connection", (socket) => {
       },
       firstToReveal: first
     };
-
+console.log(`[Backend] New round initialized for room ${roomCode}. Player bets are:`, gameStates[roomCode].players);
     // Invia i dati del round a entrambi i giocatori, includendo il nome dell'avversario
     // 🔁 Verso player1
     io.to(player1.socketId).emit("startRoundData", {
@@ -277,7 +277,7 @@ io.on("connection", (socket) => {
     } else if (otherPlayer && otherPlayer.bet !== "") {
         console.log(`[Backend] Other player (${otherId}) has already placed a bet. Not emitting 'opponentBetPlaced'.`);
     }
-  }); // <-- Questa parentesi chiude correttamente il socket.on("playerBet", ...)
+  }); 
 
   // 🔌 Disconnessione
   socket.on("disconnect", async () => {
