@@ -222,8 +222,6 @@ socket.on("startRoundRequest", async () => {
     console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}`);
 });
 
----
-
 socket.on("playerBet", ({ roomCode, bet }) => {
     const game = gameStates[roomCode];
     if (!game || !game.players[socket.id]) {
