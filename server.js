@@ -10,7 +10,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] }
 });
- 
+  
 // DB setup
 const uri = process.env.MONGO_URI;
 const dbName = "gameDB";
@@ -66,10 +66,10 @@ app.get("/online-players", async (req, res) => {
   }
 });
 
-// 🎮 Socket.io - gestione giocatori online
+// 🎮 Socket.io - gestione giocatori online e game logic
 io.on("connection", (socket) => {
   console.log("🟢 Connessione socket:", socket.id);
-  let heartbeatInterval;
+  let heartbeatInterval; // Dichiarata nello scope di 'connection'
 
   // ✅ Registrazione giocatore online
   socket.on("registerPlayer", async (name) => {
@@ -116,168 +116,168 @@ io.on("connection", (socket) => {
     }
   });
 
- // 🎮 Unisciti a una stanza esistente
-socket.on("joinRoom", async ({ name, roomCode }, callback) => {
-  const match = await matchesCollection.findOne({ roomCode });
+  // 🎮 Unisciti a una stanza esistente
+  socket.on("joinRoom", async ({ name, roomCode }, callback) => {
+    const match = await matchesCollection.findOne({ roomCode });
 
-  if (!match) return callback({ success: false, error: "Stanza non trovata" });
-  if (match.players.length >= 2) return callback({ success: false, error: "Stanza piena" });
+    if (!match) return callback({ success: false, error: "Stanza non trovata" });
+    if (match.players.length >= 2) return callback({ success: false, error: "Stanza piena" });
 
-  try {
-    await matchesCollection.updateOne(
-      { roomCode },
-      { $push: { players: { socketId: socket.id, name } } }
-    );
+    try {
+      await matchesCollection.updateOne(
+        { roomCode },
+        { $push: { players: { socketId: socket.id, name } } }
+      );
 
-    socket.join(roomCode);
-    socket.data.name = name;
-    socket.data.roomCode = roomCode;
+      socket.join(roomCode);
+      socket.data.name = name;
+      socket.data.roomCode = roomCode;
 
-    const otherPlayer = match.players[0]; // Creatore stanza
-    const opponentName = otherPlayer.name;
+      const otherPlayer = match.players[0]; // Creatore stanza
+      const opponentName = otherPlayer.name;
 
-    // 🔔 Notifica entrambi i giocatori + invia socketId creatore
-    io.to(roomCode).emit("bothPlayersReady", {
-      opponent1: opponentName,
-      opponent2: name,
-      creatorSocketId: otherPlayer.socketId
-    });
-
-    console.log(`👥 ${name} si è unito alla stanza ${roomCode} con ${opponentName}`);
-    callback({ success: true });
-  } catch (err) {
-    console.error("❌ Errore unione stanza:", err);
-    callback({ success: false, error: "Errore unione stanza" });
-  }
-});
-
-// STARTROUND
-const gameStates = {}; // Se non l'hai già fatto, all'inizio del file
-
-socket.on("startRoundRequest", async () => {
-  const roomCode = socket.data?.roomCode;
-  if (!roomCode) return;
-
-  const room = await matchesCollection.findOne({ roomCode });
-  if (!room || room.players.length < 2) return;
-
-  // Prepara nuovo round
-  const round = gameStates[roomCode]?.round + 1 || 1;
-
-  const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
-  const values = [2, 3, 4, 5, 6, 7, "Fante", "Cavallo", "Re", "Asso"];
-  let deck = [];
-  for (let suit of suits) {
-    for (let value of values) {
-      deck.push({ suit, value });
-    }
-  }
-  deck = deck.sort(() => Math.random() - 0.5);
-
-  const [player1, player2] = room.players;
-  const p1Cards = deck.splice(0, round);
-  const p2Cards = deck.splice(0, round);
-
-  const first = Math.random() < 0.5 ? player1.socketId : player2.socketId;
-
-  // Salva stato
-  gameStates[roomCode] = {
-    round,
-    deck,
-    players: {
-      [player1.socketId]: {
-        name: player1.name,
-        hand: p1Cards,
-        bet: "",
-        playedCard: null,
-        score: gameStates[roomCode]?.players[player1.socketId]?.score || 0
-      },
-      [player2.socketId]: {
-        name: player2.name,
-        hand: p2Cards,
-        bet: "",
-        playedCard: null,
-        score: gameStates[roomCode]?.players[player2.socketId]?.score || 0
-      }
-    },
-    firstToReveal: first
-  };
-
-  // Invia dati round a entrambi
- // 🔁 Verso player1
-io.to(player1.socketId).emit("startRoundData", {
-  round,
-  yourCards: p1Cards,
-  opponent1Cards: p2Cards,
-  firstToReveal: first === player1.socketId ? "you" : "opponent",
-  opponentName: player2.name
-});
-
-// 🔁 Verso player2
-io.to(player2.socketId).emit("startRoundData", {
-  round,
-  yourCards: p2Cards,
-  opponent1Cards: p1Cards,
-  firstToReveal: first === player2.socketId ? "you" : "opponent",
-  opponentName: player1.name
-});
-
-  console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}`);
-});
-
-// Gestione Scommesse
-  socket.on("playerBet", ({ roomCode, bet }) => {
-     console.log(`[Backend] Received 'playerBet' from socket ID: ${socket.id}, roomCode: ${roomCode}, bet: ${bet}`);
-    
-  const game = gameStates[roomCode];
-  if (!game) {
-    console.log(`[Backend ERROR] Game state not found for roomCode: ${roomCode}`);
-    return;
-  }
-  if (!game.players[socket.id]) {
-    console.log(`[Backend ERROR] Player not found in game state for socket ID: ${socket.id}`);
-    return;
-  }
-
-  // 🔐 Salva la scommessa di questo giocatore
-  game.players[socket.id].bet = bet;
-  console.log(`[Backend] Player ${socket.id} bet: ${game.players[socket.id].bet}`);
-
-  // 🔎 Verifica se anche l'altro ha scommesso
-  const playerIds = Object.keys(game.players);
-  const allBets = playerIds.map(id => game.players[id].bet);
-
-  // 👥 Se entrambi hanno scommesso, invia a entrambi
-  if (allBets.every(b => b !== "")) {
-     console.log(`[Backend] Both players have placed their bets. Emitting 'bothBetsPlaced'.`);
-    playerIds.forEach(playerId => {
-      const opponentId = playerIds.find(id => id !== playerId);
-      io.to(playerId).emit("bothBetsPlaced", {
-        yourBet: game.players[playerId].bet,
-        opponentBet: game.players[opponentId].bet
+      // 🔔 Notifica entrambi i giocatori + invia socketId creatore
+      io.to(roomCode).emit("bothPlayersReady", {
+        opponent1: opponentName,
+        opponent2: name,
+        creatorSocketId: otherPlayer.socketId
       });
-    });
-    return;
-  }
 
-  // ⏳ Se solo uno ha scommesso, avvisa l’altro che tocca a lui
-  const otherId = playerIds.find(id => id !== socket.id);
-  const otherPlayer = game.players[otherId];
+      console.log(`👥 ${name} si è unito alla stanza ${roomCode} con ${opponentName}`);
+      callback({ success: true });
+    } catch (err) {
+      console.error("❌ Errore unione stanza:", err);
+      callback({ success: false, error: "Errore unione stanza" });
+    }
+  });
+
+  // --- START OF GAME LOGIC ---
+
+  const gameStates = {}; 
+
+  socket.on("startRoundRequest", async () => {
+    const roomCode = socket.data?.roomCode;
+    if (!roomCode) return;
+
+    const room = await matchesCollection.findOne({ roomCode });
+    if (!room || room.players.length < 2) return;
+
+    // Prepara nuovo round
+    const round = gameStates[roomCode]?.round + 1 || 1;
+
+    const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
+    const values = [2, 3, 4, 5, 6, 7, "Fante", "Cavallo", "Re", "Asso"];
+    let deck = [];
+    for (let suit of suits) {
+      for (let value of values) {
+        deck.push({ suit, value });
+      }
+    }
+    deck = deck.sort(() => Math.random() - 0.5);
+
+    const [player1, player2] = room.players;
+    const p1Cards = deck.splice(0, round);
+    const p2Cards = deck.splice(0, round);
+
+    const first = Math.random() < 0.5 ? player1.socketId : player2.socketId;
+
+    // Salva stato del round, inizializzando le scommesse a ""
+    gameStates[roomCode] = {
+      round,
+      deck,
+      players: {
+        [player1.socketId]: {
+          name: player1.name,
+          hand: p1Cards,
+          bet: "", 
+          playedCard: null,
+          score: gameStates[roomCode]?.players[player1.socketId]?.score || 0
+        },
+        [player2.socketId]: {
+          name: player2.name,
+          hand: p2Cards,
+          bet: "", 
+          playedCard: null,
+          score: gameStates[roomCode]?.players[player2.socketId]?.score || 0
+        }
+      },
+      firstToReveal: first
+    };
+
+    // Invia i dati del round a entrambi i giocatori, includendo il nome dell'avversario
+    // 🔁 Verso player1
+    io.to(player1.socketId).emit("startRoundData", {
+      round,
+      yourCards: p1Cards,
+      opponent1Cards: p2Cards,
+      firstToReveal: first === player1.socketId ? "you" : "opponent",
+      opponentName: player2.name
+    });
+
+    // 🔁 Verso player2
+    io.to(player2.socketId).emit("startRoundData", {
+      round,
+      yourCards: p2Cards,
+      opponent1Cards: p1Cards,
+      firstToReveal: first === player2.socketId ? "you" : "opponent",
+      opponentName: player1.name
+    });
+
+    console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}`);
+  });
+
+  // Gestione Scommesse
+  socket.on("playerBet", ({ roomCode, bet }) => {
+    console.log(`[Backend] Received 'playerBet' from socket ID: ${socket.id}, roomCode: ${roomCode}, bet: ${bet}`);
+      
+    const game = gameStates[roomCode];
+    if (!game) {
+      console.log(`[Backend ERROR] Game state not found for roomCode: ${roomCode}`);
+      return;
+    }
+    if (!game.players[socket.id]) {
+      console.log(`[Backend ERROR] Player not found in game state for socket ID: ${socket.id}`);
+      return;
+    }
+
+    // Salva la scommessa del giocatore corrente
+    game.players[socket.id].bet = bet;
+    console.log(`[Backend] Player ${socket.id} bet: ${game.players[socket.id].bet}`);
+
+    // Verifica se anche l'altro ha scommesso
+    const playerIds = Object.keys(game.players);
+    const allBets = playerIds.map(id => game.players[id].bet);
+    console.log(`[Backend] Current bets in room ${roomCode}:`, allBets);
+
+    // Se entrambi hanno scommesso (cioè il valore non è una stringa vuota)
+    if (allBets.every(b => b !== "")) { 
+      console.log(`[Backend] Both players have placed their bets. Emitting 'bothBetsPlaced'.`);
+      playerIds.forEach(playerId => {
+        const opponentId = playerIds.find(id => id !== playerId);
+        io.to(playerId).emit("bothBetsPlaced", {
+          yourBet: game.players[playerId].bet,
+          opponentBet: game.players[opponentId].bet
+        });
+      });
+      return; // Importante uscire qui dopo aver emesso bothBetsPlaced
+    }
+
+    // Se solo uno ha scommesso, avvisa l’altro che tocca a lui
+    const otherId = playerIds.find(id => id !== socket.id);
+    const otherPlayer = game.players[otherId];
 
     // Verifica esplicitamente lo stato della scommessa dell'altro giocatore
-  console.log(`[Backend] Other player (${otherId}) bet status:`, otherPlayer ? otherPlayer.bet : 'N/A (player not found)');
-    
-  if (otherPlayer && otherPlayer.bet === "") { // Controlla che la scommessa dell'altro sia ancora una stringa vuota
-    console.log(`[Backend] Emitting 'opponentBetPlaced' to ${otherId} with opponentBet: ${bet}`);
-    io.to(otherId).emit("opponentBetPlaced", {
-      opponentBet: bet
-    });
-  } else if (otherPlayer && otherPlayer.bet !== "") {
-      console.log(`[Backend] Other player (${otherId}) has already placed a bet. Not emitting 'opponentBetPlaced'.`);
-  }
-});
-  }
-});
+    console.log(`[Backend] Other player (${otherId}) bet status:`, otherPlayer ? otherPlayer.bet : 'N/A (player not found)');
+        
+    if (otherPlayer && otherPlayer.bet === "") { // Controlla che la scommessa dell'altro sia ancora una stringa vuota
+      console.log(`[Backend] Emitting 'opponentBetPlaced' to ${otherId} with opponentBet: ${bet}`);
+      io.to(otherId).emit("opponentBetPlaced", {
+        opponentBet: bet
+      });
+    } else if (otherPlayer && otherPlayer.bet !== "") {
+        console.log(`[Backend] Other player (${otherId}) has already placed a bet. Not emitting 'opponentBetPlaced'.`);
+    }
+  }); // <-- Questa parentesi chiude correttamente il socket.on("playerBet", ...)
 
   // 🔌 Disconnessione
   socket.on("disconnect", async () => {
@@ -304,7 +304,7 @@ io.to(player2.socketId).emit("startRoundData", {
       console.error("❌ Errore rimozione stanza/giocatore:", err);
     }
   });
-});
+}); // <-- Questa parentesi chiude correttamente io.on("connection", ...)
 
 // 🚀 Avvio server
 connectToDatabase().then(() => {
