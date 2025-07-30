@@ -227,12 +227,21 @@ io.to(player2.socketId).emit("startRoundData", {
 
 // Gestione Scommesse
   socket.on("playerBet", ({ roomCode, bet }) => {
+     console.log(`[Backend] Received 'playerBet' from socket ID: ${socket.id}, roomCode: ${roomCode}, bet: ${bet}`);
+    
   const game = gameStates[roomCode];
-  if (!game || !game.players[socket.id]) return;
+  if (!game) {
+    console.log(`[Backend ERROR] Game state not found for roomCode: ${roomCode}`);
+    return;
+  }
+  if (!game.players[socket.id]) {
+    console.log(`[Backend ERROR] Player not found in game state for socket ID: ${socket.id}`);
+    return;
+  }
 
   // 🔐 Salva la scommessa di questo giocatore
   game.players[socket.id].bet = bet;
-  console.log(`🎯 ${socket.id} ha scommesso ${bet} nella stanza ${roomCode}`);
+  console.log(`[Backend] Player ${socket.id} bet: ${game.players[socket.id].bet}`);
 
   // 🔎 Verifica se anche l'altro ha scommesso
   const playerIds = Object.keys(game.players);
@@ -240,6 +249,7 @@ io.to(player2.socketId).emit("startRoundData", {
 
   // 👥 Se entrambi hanno scommesso, invia a entrambi
   if (allBets.every(b => b !== "")) {
+     console.log(`[Backend] Both players have placed their bets. Emitting 'bothBetsPlaced'.`);
     playerIds.forEach(playerId => {
       const opponentId = playerIds.find(id => id !== playerId);
       io.to(playerId).emit("bothBetsPlaced", {
@@ -253,10 +263,19 @@ io.to(player2.socketId).emit("startRoundData", {
   // ⏳ Se solo uno ha scommesso, avvisa l’altro che tocca a lui
   const otherId = playerIds.find(id => id !== socket.id);
   const otherPlayer = game.players[otherId];
-  if (otherPlayer && otherPlayer.bet === "") {
+
+    // Verifica esplicitamente lo stato della scommessa dell'altro giocatore
+  console.log(`[Backend] Other player (${otherId}) bet status:`, otherPlayer ? otherPlayer.bet : 'N/A (player not found)');
+    
+  if (otherPlayer && otherPlayer.bet === "") { // Controlla che la scommessa dell'altro sia ancora una stringa vuota
+    console.log(`[Backend] Emitting 'opponentBetPlaced' to ${otherId} with opponentBet: ${bet}`);
     io.to(otherId).emit("opponentBetPlaced", {
       opponentBet: bet
     });
+  } else if (otherPlayer && otherPlayer.bet !== "") {
+      console.log(`[Backend] Other player (${otherId}) has already placed a bet. Not emitting 'opponentBetPlaced'.`);
+  }
+});
   }
 });
 
