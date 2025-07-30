@@ -188,14 +188,14 @@ socket.on("startRoundRequest", async () => {
       [player1.socketId]: {
         name: player1.name,
         hand: p1Cards,
-        bet: null,
+        bet: "",
         playedCard: null,
         score: gameStates[roomCode]?.players[player1.socketId]?.score || 0
       },
       [player2.socketId]: {
         name: player2.name,
         hand: p2Cards,
-        bet: null,
+        bet: "",
         playedCard: null,
         score: gameStates[roomCode]?.players[player2.socketId]?.score || 0
       }
@@ -209,7 +209,8 @@ io.to(player1.socketId).emit("startRoundData", {
   round,
   yourCards: p1Cards,
   opponent1Cards: p2Cards,
-  firstToReveal: first === player1.socketId ? "you" : "opponent"
+  firstToReveal: first === player1.socketId ? "you" : "opponent",
+  opponentName: player2.name
 });
 
 // 🔁 Verso player2
@@ -217,7 +218,8 @@ io.to(player2.socketId).emit("startRoundData", {
   round,
   yourCards: p2Cards,
   opponent1Cards: p1Cards,
-  firstToReveal: first === player2.socketId ? "you" : "opponent"
+  firstToReveal: first === player2.socketId ? "you" : "opponent",
+  opponentName: player1.name
 });
 
   console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}`);
@@ -237,7 +239,7 @@ io.to(player2.socketId).emit("startRoundData", {
   const allBets = playerIds.map(id => game.players[id].bet);
 
   // 👥 Se entrambi hanno scommesso, invia a entrambi
-  if (allBets.every(b => b !== null)) {
+  if (allBets.every(b => b !== "")) {
     playerIds.forEach(playerId => {
       const opponentId = playerIds.find(id => id !== playerId);
       io.to(playerId).emit("bothBetsPlaced", {
@@ -251,7 +253,7 @@ io.to(player2.socketId).emit("startRoundData", {
   // ⏳ Se solo uno ha scommesso, avvisa l’altro che tocca a lui
   const otherId = playerIds.find(id => id !== socket.id);
   const otherPlayer = game.players[otherId];
-  if (otherPlayer && otherPlayer.bet === null) {
+  if (otherPlayer && otherPlayer.bet === "") {
     io.to(otherId).emit("opponentBetPlaced", {
       opponentBet: bet
     });
