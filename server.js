@@ -10,7 +10,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] }
 });
-
+ 
 // DB setup
 const uri = process.env.MONGO_URI;
 const dbName = "gameDB";
@@ -204,19 +204,21 @@ socket.on("startRoundRequest", async () => {
   };
 
   // Invia dati round a entrambi
-  io.to(player1.socketId).emit("startRoundData", {
-    round,
-    yourCards: p1Cards,
-    opponentCardCount: p2Cards.length,
-    firstToReveal: first === player1.socketId ? "you" : "opponent"
-  });
+ // 🔁 Verso player1
+io.to(player1.socketId).emit("startRoundData", {
+  round,
+  yourCards: p1Cards,
+  opponentCards: p2Cards,
+  firstToReveal: first === player1.socketId ? "you" : "opponent"
+});
 
-  io.to(player2.socketId).emit("startRoundData", {
-    round,
-    yourCards: p2Cards,
-    opponentCardCount: p1Cards.length,
-    firstToReveal: first === player2.socketId ? "you" : "opponent"
-  });
+// 🔁 Verso player2
+io.to(player2.socketId).emit("startRoundData", {
+  round,
+  yourCards: p2Cards,
+  opponentCards: p1Cards,
+  firstToReveal: first === player2.socketId ? "you" : "opponent"
+});
 
   console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}`);
 });
