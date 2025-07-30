@@ -399,8 +399,7 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
     console.log(`[Backend] Received 'playerCardPlayed' from socket ID: ${socket.id}, roomCode: ${roomCode}, card:`, card);
 
     let game = gameStates[roomCode];
-    if (!game) { /* ... error handling ... */ return; }
-    if (!game.players[socket.id]) { /* ... error handling ... */ return; }
+   if (!game || !game.players[socket.id]) return;
 
     // Registra la carta giocata e l'indice
     game.players[socket.id].playedCard = card;
@@ -411,8 +410,6 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
     game.players[socket.id].hand = game.players[socket.id].hand.filter(c => 
         !(c.suit === card.suit && c.value === card.value)
     );
-
-    console.log(`[Backend] Player ${socket.id} played card:`, card);
 
     const playerIds = Object.keys(game.players);
     const currentPlayerId = socket.id;
@@ -426,12 +423,12 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
         await processPlayedCards(roomCode, io); // Chiama la funzione asincrona con await
     } else {
         // Solo un giocatore ha giocato: Avvisa l'altro che la carta è stata giocata
-        console.log(`[Backend] Player ${currentPlayerId} played. Emitting 'opponentCardPlayed' to ${opponentId}.`);
-        io.to(opponentId).emit("opponentCardPlayed", {
+        io.to(opponentId).emit("opponentPlayedTheirCard", {
             opponentCard: card,
             opponentCardIndex: cardIndex, // Importante per l'UI dell'avversario
-            firstToReveal: game.firstToReveal // Invia anche chi sarà il firstToReveal dopo questa giocata (utile per evidenziare il turno)
         });
+      
+      io.to(currentPlayerId).emit("waitingForOpponentPlay");
     }
     
     // 🚨 SALVA LO STATO AGGIORNATO DEL GIOCO NEL DB QUI
