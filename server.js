@@ -206,16 +206,16 @@ socket.on("startRoundRequest", async () => {
     io.to(player1.socketId).emit("startRoundData", {
         round,
         yourCards: p1Cards,
-        opponent1Cards: p2Cards, // Questo nome potrebbe essere fuorviante se non gestisci 1vs1
-        firstToReveal: first === player1.socketId ? "you" : "opponent",
+        opponent1Cards: p2Cards,
+        firstToReveal: first,
         opponentName: player2.name
     });
 
     io.to(player2.socketId).emit("startRoundData", {
         round,
         yourCards: p2Cards,
-        opponent1Cards: p1Cards, // Questo nome potrebbe essere fuorviante se non gestisci 1vs1
-        firstToReveal: first === player2.socketId ? "you" : "opponent",
+        opponent1Cards: p1Cards, 
+        firstToReveal: first,
         opponentName: player1.name
     });
 
