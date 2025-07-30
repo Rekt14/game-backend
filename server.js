@@ -204,20 +204,20 @@ socket.on("startRoundRequest", async () => {
     };
 
     io.to(player1.socketId).emit("startRoundData", {
-        round,
-        yourCards: p1Cards,
-        opponent1Cards: p2Cards,
-        firstToReveal: first,
-        opponentName: player2.name
-    });
+        round,
+        yourCards: p1Cards,
+        opponent1Cards: p2Cards,
+        firstToReveal: first === player1.socketId ? "you" : "opponent",
+        opponentName: player2.name
+    });
 
-    io.to(player2.socketId).emit("startRoundData", {
-        round,
-        yourCards: p2Cards,
-        opponent1Cards: p1Cards, 
-        firstToReveal: first,
-        opponentName: player1.name
-    });
+    io.to(player2.socketId).emit("startRoundData", {
+        round,
+        yourCards: p2Cards,
+        opponent1Cards: p1Cards, 
+        firstToReveal: first === player2.socketId ? "you" : "opponent",
+        opponentName: player1.name
+    });
 
     console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}`);
 });
