@@ -352,6 +352,8 @@ function compareCards(c1, c2) {
             player2Wins: player2.currentRoundWins,
             player1Id: player1Id,
             player2Id: player2Id,
+           player1Bet: player1.bet,
+           player2Bet: player2.bet,
             currentRound: game.round, // Per il controllo "round >= 10"
             firstToReveal: game.firstToReveal // Chi inizia il prossimo round
         });
