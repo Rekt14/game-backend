@@ -190,14 +190,16 @@ socket.on("startRoundRequest", async () => {
                 hand: p1Cards,
                 bet: "",
                 playedCard: null,
-                score: gameStates[roomCode]?.players[player1.socketId]?.score || 0
+                score: gameStates[roomCode]?.players[player1.socketId]?.score || 0,
+                revealedCardsCount: 0
             },
             [player2.socketId]: {
                 name: player2.name,
                 hand: p2Cards,
                 bet: "",
                 playedCard: null,
-                score: gameStates[roomCode]?.players[player2.socketId]?.score || 0
+                score: gameStates[roomCode]?.players[player2.socketId]?.score || 0,
+                revealedCardsCount: 0
             }
         },
         firstToReveal: first
@@ -206,7 +208,7 @@ socket.on("startRoundRequest", async () => {
     io.to(player1.socketId).emit("startRoundData", {
         round,
         yourCards: p1Cards,
-        opponent1Cards: p2Cards,
+        opponent1Cards: round === 1 ? p2Cards : Array(round).fill(null),
         firstToReveal: first === player1.socketId ? "you" : "opponent",
         opponentName: player2.name
     });
@@ -214,7 +216,7 @@ socket.on("startRoundRequest", async () => {
     io.to(player2.socketId).emit("startRoundData", {
         round,
         yourCards: p2Cards,
-        opponent1Cards: p1Cards, 
+        opponent1Cards: round === 1 ? p1Cards : Array(round).fill(null), 
         firstToReveal: first === player2.socketId ? "you" : "opponent",
         opponentName: player1.name
     });
@@ -289,7 +291,7 @@ function compareCards(c1, c2) {
     if (!game) return; 
 
     const playerIds = Object.keys(game.players);
-    const player1Id = playerIds[0]; // Assumi il primo come Player1, il secondo come Player2
+    const player1Id = playerIds[0]; 
     const player2Id = playerIds[1];
 
     const player1 = game.players[player1Id];
@@ -303,11 +305,11 @@ function compareCards(c1, c2) {
 
     // Aggiorna i conteggi delle mani vinte
     if (player1WinsHand) {
-        player1.currentRoundWins++; // NUOVA VARIABILE per le vittorie nel round corrente
-        game.firstToReveal = player1Id; // Il vincitore della mano inizia il prossimo turno
+        player1.currentRoundWins++;
+        game.firstToReveal = player1Id; 
     } else {
-        player2.currentRoundWins++; // NUOVA VARIABILE
-        game.firstToReveal = player2Id; // Il vincitore della mano inizia il prossimo turno
+        player2.currentRoundWins++; 
+        game.firstToReveal = player2Id; 
     }
 
     // 2. Notifica entrambi i giocatori del risultato della mano
@@ -315,7 +317,7 @@ function compareCards(c1, c2) {
         winnerId: player1WinsHand ? player1Id : player2Id,
         player1Card: card1,
         player2Card: card2,
-        player1Id: player1Id, // Invia gli ID per permettere al frontend di identificare i nomi
+        player1Id: player1Id, 
         player2Id: player2Id,
         player1Wins: player1.currentRoundWins,
         player2Wins: player2.currentRoundWins
@@ -328,8 +330,7 @@ function compareCards(c1, c2) {
     player2.playedCardIndex = null;
 
     // 4. Controlla se il round è finito (tutte le carte sono state giocate)
-    if (player1.currentRoundWins + player2.currentRoundWins === game.round) {
-        // Round terminato! Calcola i punteggi finali del round
+     if (player1.revealedCardsCount === game.round && player2.revealedCardsCount === game.round) {
         if (player1.currentRoundWins === player1.bet) {
             player1.score += (10 + player1.bet);
         } else {
@@ -358,6 +359,8 @@ function compareCards(c1, c2) {
         player2.bet = "";
         player1.currentRoundWins = 0;
         player2.currentRoundWins = 0;
+        player1.revealedCardsCount = 0; 
+        player2.revealedCardsCount = 0;
 
         // Se il gioco è finito (round >= 10), gestisci la fine del gioco
         if (game.round >= 10) {
@@ -396,7 +399,6 @@ function compareCards(c1, c2) {
 
 // Backend: Nel socket.on("playerCardPlayed", ...)
 socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
-    console.log(`[Backend] Received 'playerCardPlayed' from socket ID: ${socket.id}, roomCode: ${roomCode}, card:`, card);
 
     let game = gameStates[roomCode];
    if (!game || !game.players[socket.id]) return;
@@ -405,11 +407,18 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
     game.players[socket.id].playedCard = card;
     game.players[socket.id].playedCardIndex = cardIndex; // Salva l'indice per il frontend
     
-    // Rimuovi la carta dalla mano logica del giocatore nel backend
-    // Usa filter per creare un nuovo array senza la carta giocata
-    game.players[socket.id].hand = game.players[socket.id].hand.filter(c => 
-        !(c.suit === card.suit && c.value === card.value)
+    // Incrementa il conteggio delle carte rivelate dal giocatore
+    game.players[socket.id].revealedCardsCount++;
+
+    // Marca la carta come "giocata" all'interno della mano del backend
+    const cardInHand = game.players[socket.id].hand.find(c =>
+        c.suit === card.suit && c.value === card.value
     );
+    if (cardInHand) {
+        cardInHand.played = true; // Aggiunge una proprietà 'played' alla carta
+    } else {
+        console.warn(`[SERVER] Carta giocata non trovata nella mano del giocatore ${socket.id}: ${card.value} di ${card.suit}`);
+    }
 
     const playerIds = Object.keys(game.players);
     const currentPlayerId = socket.id;
@@ -466,7 +475,7 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
       console.error("❌ Errore rimozione stanza/giocatore:", err);
     }
   });
-}); // <-- Questa parentesi chiude correttamente io.on("connection", ...)
+}); 
 
 // 🚀 Avvio server
 connectToDatabase().then(() => {
