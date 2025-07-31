@@ -329,19 +329,6 @@ function compareCards(c1, c2) {
     player2.playedCard = null;
     player2.playedCardIndex = null;
 
-     // --- INIZIO AREA DI DEBUG ---
-    console.log(`--- DEBUG processPlayedCards per Stanza: ${roomCode} ---`);
-    console.log(`Current Round: ${game.round}`);
-    console.log(`Player1 (${player1.name}) revealedCardsCount: ${player1.revealedCardsCount}`);
-    console.log(`Player2 (${player2.name}) revealedCardsCount: ${player2.revealedCardsCount}`);
-
-    const conditionP1 = (player1.revealedCardsCount === game.round);
-    const conditionP2 = (player2.revealedCardsCount === game.round);
-    console.log(`Condizione P1 (revealed === round): ${conditionP1}`);
-    console.log(`Condizione P2 (revealed === round): ${conditionP2}`);
-    console.log(`Condizione FINALE (P1 && P2): ${conditionP1 && conditionP2}`);
-    // --- FINE AREA DI DEBUG ---
-
     // 4. Controlla se il round è finito (tutte le carte sono state giocate)
      if (player1.revealedCardsCount === game.round && player2.revealedCardsCount === game.round) {
         if (player1.currentRoundWins === player1.bet) {
@@ -366,6 +353,11 @@ function compareCards(c1, c2) {
             currentRound: game.round, // Per il controllo "round >= 10"
             firstToReveal: game.firstToReveal // Chi inizia il prossimo round
         });
+
+       // DEBUG: Log dei dati inviati al frontend dopo il calcolo del round
+        console.log(`[DEBUG - Backend] Dati inviati a 'roundFinished' per ${roomCode}:`);
+        console.log(`  P1 Score: ${player1.score}, P1 Wins: ${player1.currentRoundWins}, P1 Bet: ${player1.bet}`);
+        console.log(`  P2 Score: ${player2.score}, P2 Wins: ${player2.currentRoundWins}, P2 Bet: ${player2.bet}`);
 
         // Resetta le scommesse e le mani vinte per il prossimo round
         player1.bet = "";
