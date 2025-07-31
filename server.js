@@ -188,7 +188,7 @@ socket.on("startRoundRequest", async () => {
             [player1.socketId]: {
                 name: player1.name,
                 hand: p1Cards,
-                bet: null,
+                bet: "",
                 playedCard: null,
                 score: gameStates[roomCode]?.players[player1.socketId]?.score || 0,
                 currentRoundWins: 0,
@@ -197,7 +197,7 @@ socket.on("startRoundRequest", async () => {
             [player2.socketId]: {
                 name: player2.name,
                 hand: p2Cards,
-                bet: null,
+                bet: "",
                 playedCard: null,
                 score: gameStates[roomCode]?.players[player2.socketId]?.score || 0,
                 currentRoundWins: 0,
@@ -232,7 +232,7 @@ socket.on("playerBet", ({ roomCode, bet }) => {
         return;
     }
 
-    game.players[socket.id].bet = Number(bet);
+    game.players[socket.id].bet = bet;
 
     const playerIds = Object.keys(game.players);
     const allBets = playerIds.map(id => game.players[id].bet);
