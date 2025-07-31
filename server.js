@@ -163,6 +163,11 @@ socket.on("startRoundRequest", async () => {
     const room = await matchesCollection.findOne({ roomCode });
     if (!room || room.players.length < 2) return;
 
+  // --- DEBUG LOG START ---
+    console.log(`[DEBUG - StartRoundRequest] Inizio richiesta per stanza: ${roomCode}`);
+    console.log(`[DEBUG - StartRoundRequest] Stato gameStates[${roomCode}] prima:`, JSON.stringify(gameStates[roomCode], null, 2));
+    // --- DEBUG LOG END ---
+
     const round = gameStates[roomCode]?.round + 1 || 1;
 
     const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
@@ -179,7 +184,12 @@ socket.on("startRoundRequest", async () => {
     const p1Cards = deck.splice(0, round);
     const p2Cards = deck.splice(0, round);
 
-    const first = Math.random() < 0.5 ? player1.socketId : player2.socketId;
+
+  let first = "";
+    
+  if ( round === 1 ) {
+    first = Math.random() < 0.5 ? player1.socketId : player2.socketId;
+  }
 
     gameStates[roomCode] = {
         round,
@@ -206,6 +216,13 @@ socket.on("startRoundRequest", async () => {
         },
         firstToReveal: first
     };
+
+   // --- DEBUG LOG START ---
+    console.log(`[DEBUG - StartRoundRequest] Stato gameStates[${roomCode}] dopo inizializzazione:`, JSON.stringify(gameStates[roomCode], null, 2));
+    console.log(`[DEBUG - StartRoundRequest] Round attuale: ${round}`);
+    console.log(`[DEBUG - StartRoundRequest] Player1 ID: ${player1.socketId}, Player2 ID: ${player2.socketId}`);
+    console.log(`[DEBUG - StartRoundRequest] firstToReveal impostato a: ${first}`);
+    // --- DEBUG LOG END ---
 
     io.to(player1.socketId).emit("startRoundData", {
         round,
