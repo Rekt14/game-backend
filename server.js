@@ -331,6 +331,12 @@ function compareCards(c1, c2) {
     player2.playedCard = null;
     player2.playedCardIndex = null;
 
+     // --- DEBUG LOG START ---
+    console.log(`[DEBUG - ProcessCards] Stanza: ${roomCode}`);
+    console.log(`[DEBUG - ProcessCards] Player1 revealedCardsCount: ${player1.revealedCardsCount}, game.round: ${game.round}`);
+    console.log(`[DEBUG - ProcessCards] Player2 revealedCardsCount: ${player2.revealedCardsCount}, game.round: ${game.round}`);
+    // --- DEBUG LOG END ---
+
     // 4. Controlla se il round è finito (tutte le carte sono state giocate)
      if (player1.revealedCardsCount === game.round && player2.revealedCardsCount === game.round) {
         if (player1.currentRoundWins === player1.bet) {
@@ -437,6 +443,14 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
 
     const currentPlayerPlayed = game.players[currentPlayerId].playedCard !== null;
     const opponentPlayed = game.players[opponentId].playedCard !== null;
+
+  // --- DEBUG LOG START ---
+    console.log(`[DEBUG - PlayerCardPlayed] Stanza: ${roomCode}, Giocatore: ${currentPlayerId}`);
+    console.log(`[DEBUG - PlayerCardPlayed] Tua carta giocata: ${JSON.stringify(card)}, Indice: ${cardIndex}`);
+    console.log(`[DEBUG - PlayerCardPlayed] Tua revealedCardsCount: ${game.players[currentPlayerId].revealedCardsCount}`);
+    console.log(`[DEBUG - PlayerCardPlayed] Stato carte: Tua giocata: ${currentPlayerPlayed}, Opponent giocata: ${opponentPlayed}`);
+    console.log(`[DEBUG - PlayerCardPlayed] firstToReveal attuale: ${game.firstToReveal}`);
+    // --- DEBUG LOG END ---
 
     if (currentPlayerPlayed && opponentPlayed) {
         // Entrambi hanno giocato: chiama la funzione che processa il risultato della mano
