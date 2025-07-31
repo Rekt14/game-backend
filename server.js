@@ -401,12 +401,14 @@ function compareCards(c1, c2) {
     }
 
     // 🚨 SALVA LO STATO AGGIORNATO NEL DB DOPO OGNI OPERAZIONE SIGNIFICATIVA 🚨
-    // Considera di chiamare questa operazione solo una volta alla fine di processPlayedCards
-    // per ridurre il numero di scritture sul DB.
-    await gamesCollection.updateOne(
-        { roomCode: roomCode },
-        { $set: game } // Salva l'intero oggetto game, che include players, round, firstToReveal, etc.
-    );
+   if (typeof matchesCollection !== 'undefined') {
+        await matchesCollection.updateOne(
+            { roomCode: roomCode },
+            { $set: { gameState: game } } // Salviamo l'oggetto `game` sotto la chiave `gameState`
+        );
+    } else {
+        console.error("matchesCollection non inizializzata. Impossibile salvare lo stato del gioco.");
+    }
 }
 
 
@@ -454,13 +456,15 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
     }
     
     // 🚨 SALVA LO STATO AGGIORNATO DEL GIOCO NEL DB QUI
-    // È importante salvare dopo ogni modifica allo stato 'game'
-    await gamesCollection.updateOne(
-        { roomCode: roomCode },
-        { $set: game } // Salva l'intero oggetto game, include le modifiche a players, hand, playedCard ecc.
-    );
+    if (typeof matchesCollection !== 'undefined') {
+        await matchesCollection.updateOne(
+            { roomCode: roomCode },
+            { $set: { gameState: game } } // Salviamo l'oggetto `game` sotto la chiave `gameState`
+        );
+    } else {
+        console.error("matchesCollection non inizializzata. Impossibile salvare lo stato.");
+    }
 });
-
 
   
   // 🔌 Disconnessione
