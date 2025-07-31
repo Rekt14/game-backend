@@ -185,11 +185,7 @@ socket.on("startRoundRequest", async () => {
     const p2Cards = deck.splice(0, round);
 
 
-  let first = "";
-    
-  if ( round === 1 ) {
-    first = Math.random() < 0.5 ? player1.socketId : player2.socketId;
-  }
+  const first = Math.random() < 0.5 ? player1.socketId : player2.socketId;
 
     gameStates[roomCode] = {
         round,
