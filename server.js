@@ -224,7 +224,7 @@ if (gameStates[roomCode] && gameStates[roomCode].lastRoundWinner) {
         round,
         yourCards: p1Cards,
         opponent1Cards: round === 1 ? p2Cards : Array(round).fill(null),
-        firstToReveal: first === player1.socketId ? "you" : "opponent",
+        firstToReveal: firstPlayerForThisRound,
         opponentName: player2.name
     });
 
@@ -232,7 +232,7 @@ if (gameStates[roomCode] && gameStates[roomCode].lastRoundWinner) {
         round,
         yourCards: p2Cards,
         opponent1Cards: round === 1 ? p1Cards : Array(round).fill(null), 
-        firstToReveal: first === player2.socketId ? "you" : "opponent",
+        firstToReveal: firstPlayerForThisRound,
         opponentName: player1.name
     });
 
