@@ -195,7 +195,7 @@ socket.on("startRoundRequest", async () => {
         const [player1, player2] = room.players; // Ottieni i socketId e nomi dei giocatori
 
         // Il round attuale sarà il precedente + 1
-        const round = game.round + 1; // <--- QUESTA LINEA ERA round = gameStates[roomCode]?.round + 1 || 1; 
+        const round = game.round + 1; 
 
         const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
         const values = [2, 3, 4, 5, 6, 7, "Fante", "Cavallo", "Re", "Asso"];
@@ -209,7 +209,7 @@ socket.on("startRoundRequest", async () => {
 
         // La determinazione di firstPlayerForThisRound
         let firstPlayerForThisRound;
-        if (game.lastRoundWinner) { // <--- gameStates[roomCode] è ora 'game'
+        if (game.lastRoundWinner) { 
             firstPlayerForThisRound = game.lastRoundWinner; 
         } else {
             firstPlayerForThisRound = Math.random() < 0.5 ? player1.socketId : player2.socketId;
@@ -221,7 +221,7 @@ socket.on("startRoundRequest", async () => {
         p2Cards.forEach(card => card.played = false);
 
         // Aggiornamento dello stato del gioco 'gameStates[roomCode]'
-        game.round = round; // <--- Aggiorniamo 'game.round'
+        game.round = round; 
         game.deck = deck;
         game.players = { 
             [player1.socketId]: {
@@ -229,7 +229,7 @@ socket.on("startRoundRequest", async () => {
                 hand: p1Cards,
                 bet: "",
                 playedCard: null,
-                score: game.players[player1.socketId]?.score || 0, // <--- Accedi tramite 'game.players'
+                score: game.players[player1.socketId]?.score || 0, 
                 currentRoundWins: 0,
                 revealedCardsCount: 0
             },
@@ -238,7 +238,7 @@ socket.on("startRoundRequest", async () => {
                 hand: p2Cards,
                 bet: "",
                 playedCard: null,
-                score: game.players[player2.socketId]?.score || 0, // <--- Accedi tramite 'game.players'
+                score: game.players[player2.socketId]?.score || 0, 
                 currentRoundWins: 0,
                 revealedCardsCount: 0
             }
@@ -267,12 +267,22 @@ socket.on("startRoundRequest", async () => {
 
     } else {
         // Un giocatore è pronto, ma l'altro no.
-        socket.emit("waitingForOpponentReady"); // Evento opzionale per feedback UI
-        console.log(`[SERVER] Giocatore ${socket.id} ha cliccato 'Prossimo Round', in attesa dell'altro.`);
+        // Emette l'evento 'waitingForOpponentReady' al giocatore che HA cliccato per fargli sapere che è in attesa.
+        socket.emit("waitingForOpponentReady", { forPlayer: "self" }); 
+        
+        // Trova l'ID dell'altro giocatore nella stanza
+        const room = await matchesCollection.findOne({ roomCode });
+        const otherPlayer = room.players.find(p => p.socketId !== socket.id);
+
+        if (otherPlayer) {
+            // Emette l'evento 'waitingForOpponentReady' all'ALTRO giocatore,
+            // con un flag diverso per indicare che è l'altro a essere in attesa.
+            io.to(otherPlayer.socketId).emit("waitingForOpponentReady", { forPlayer: "opponent" });
+            console.log(`[SERVER] Giocatore ${socket.id} ha cliccato, notifico ${otherPlayer.socketId} che lo sta aspettando.`);
+        }
     }
     
     // Salva lo stato del gioco aggiornato nel DB (questo dovrebbe essere alla fine di ogni modifica allo stato)
-    // Questa parte era già fuori dal tuo blocco originale, e deve rimanere qui
     if (typeof matchesCollection !== 'undefined') {
         try {
             await matchesCollection.updateOne(
@@ -635,4 +645,5 @@ connectToDatabase().then(() => {
     console.log(`🚀 Server attivo su http://localhost:${port}`);
   });
 });
+
 
