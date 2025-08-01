@@ -165,15 +165,6 @@ socket.on("startRoundRequest", async () => {
 
     const round = gameStates[roomCode]?.round + 1 || 1;
 
-  let firstPlayerForThisRound;
-// Se esiste un vincitore dal round precedente, quello inizia il nuovo round
-if (gameStates[roomCode] && gameStates[roomCode].lastRoundWinner) {
-    firstPlayerForThisRound = gameStates[roomCode].lastRoundWinner;
-} else {
-    // Altrimenti (ad esempio, è il primo round del gioco o nessun vincitore chiaro), scegli casualmente
-    firstPlayerForThisRound = Math.random() < 0.5 ? player1.socketId : player2.socketId;
-}
-
     const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
     const values = [2, 3, 4, 5, 6, 7, "Fante", "Cavallo", "Re", "Asso"];
     let deck = [];
@@ -185,6 +176,16 @@ if (gameStates[roomCode] && gameStates[roomCode].lastRoundWinner) {
     deck = deck.sort(() => Math.random() - 0.5);
 
     const [player1, player2] = room.players;
+
+   let firstPlayerForThisRound;
+// Se esiste un vincitore dal round precedente, quello inizia il nuovo round
+if (gameStates[roomCode] && gameStates[roomCode].lastRoundWinner) {
+    firstPlayerForThisRound = gameStates[roomCode].lastRoundWinner;
+} else {
+    // Altrimenti (ad esempio, è il primo round del gioco o nessun vincitore chiaro), scegli casualmente
+    firstPlayerForThisRound = Math.random() < 0.5 ? player1.socketId : player2.socketId;
+}
+  
     const p1Cards = deck.splice(0, round);
     p1Cards.forEach(card => card.played = false); // Resetta 'played' per le carte del giocatore 1
     const p2Cards = deck.splice(0, round);
