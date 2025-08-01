@@ -525,10 +525,6 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
     console.log(`[SERVER-PLAYERCARDPLAYED] STATO CARTE: TU GIOCATO: ${currentPlayerPlayed}, AVVERSARIO GIOCATO: ${opponentPlayed}`);
     // FINE CONSOLE LOGS
 
-
-    const currentPlayerPlayed = player.playedCard !== null;
-    const opponentPlayed = opponent.playedCard !== null;
-
     if (currentPlayerPlayed && opponentPlayed) {
        // INIZIO CONSOLE LOGS
         console.log("[SERVER-PLAYERCARDPLAYED] ENTRAMBI HANNO GIOCATO. CHIAMANDO PROCESSPLAYEDCARDS...");
