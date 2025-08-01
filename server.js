@@ -163,12 +163,16 @@ socket.on("startRoundRequest", async () => {
     const room = await matchesCollection.findOne({ roomCode });
     if (!room || room.players.length < 2) return;
 
-  // --- DEBUG LOG START ---
-    console.log(`[DEBUG - StartRoundRequest] Inizio richiesta per stanza: ${roomCode}`);
-    console.log(`[DEBUG - StartRoundRequest] Stato gameStates[${roomCode}] prima:`, JSON.stringify(gameStates[roomCode], null, 2));
-    // --- DEBUG LOG END ---
-
     const round = gameStates[roomCode]?.round + 1 || 1;
+
+  let firstPlayerForThisRound;
+// Se esiste un vincitore dal round precedente, quello inizia il nuovo round
+if (gameStates[roomCode] && gameStates[roomCode].lastRoundWinner) {
+    firstPlayerForThisRound = gameStates[roomCode].lastRoundWinner;
+} else {
+    // Altrimenti (ad esempio, è il primo round del gioco o nessun vincitore chiaro), scegli casualmente
+    firstPlayerForThisRound = Math.random() < 0.5 ? player1.socketId : player2.socketId;
+}
 
     const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
     const values = [2, 3, 4, 5, 6, 7, "Fante", "Cavallo", "Re", "Asso"];
@@ -183,9 +187,6 @@ socket.on("startRoundRequest", async () => {
     const [player1, player2] = room.players;
     const p1Cards = deck.splice(0, round);
     const p2Cards = deck.splice(0, round);
-
-
-  const first = Math.random() < 0.5 ? player1.socketId : player2.socketId;
 
     gameStates[roomCode] = {
         round,
@@ -210,7 +211,9 @@ socket.on("startRoundRequest", async () => {
                 revealedCardsCount: 0
             }
         },
-        firstToReveal: first
+        firstToReveal: firstPlayerForThisRound
+
+      lastRoundWinner: null
     };
 
 
@@ -316,9 +319,11 @@ function compareCards(c1, c2) {
     if (player1WinsHand) {
         player1.currentRoundWins++;
         game.firstToReveal = player1Id; 
+        game.lastRoundWinner = player1Id;
     } else {
         player2.currentRoundWins++; 
         game.firstToReveal = player2Id; 
+        game.lastRoundWinner = player2Id;
     }
 
     // 2. Notifica entrambi i giocatori del risultato della mano
