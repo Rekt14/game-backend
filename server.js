@@ -482,10 +482,6 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
         return;
     }
 
-    // --- PUNTO CRUCIALE PER I CONTROLLI DI VALIDITÀ ---
-
-    // 1. Controllo: La carta esiste nella mano del giocatore e corrisponde?
-    // Usiamo cardIndex per trovare la carta specifica
     const cardInPlayerHand = player.hand[cardIndex];
     if (!cardInPlayerHand || cardInPlayerHand.suit !== card.suit || cardInPlayerHand.value !== card.value) {
         socket.emit("gameError", "Carta non valida o non nella tua mano!");
@@ -493,28 +489,23 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
         return;
     }
 
-    // 2. Controllo: La carta è già stata giocata in questo round?
-    // Assicurati che `card.played` sia resettato a `false` o rimosso all'inizio di ogni round in `startRoundRequest`.
     if (cardInPlayerHand.played) {
         socket.emit("gameError", "Hai già giocato questa carta!");
         console.warn(`[SERVER] Giocatore ${currentPlayerId} ha tentato di rigiocare una carta già giocata: ${JSON.stringify(cardInPlayerHand)}`);
         return;
     }
 
-    // 3. Controllo: È il turno del giocatore corrente?
+    // QUESTO È IL CONTROLLO CHE GENERA L'ERRORE
     if (game.firstToReveal !== currentPlayerId) {
         socket.emit("gameError", "Non è il tuo turno di giocare!");
         console.warn(`[SERVER] Giocatore ${currentPlayerId} ha tentato di giocare fuori turno. Turno corrente: ${game.firstToReveal}`);
         return;
     }
 
-    // --- FINE CONTROLLI ---
-
-    // Se tutti i controlli passano, procedi con la registrazione della giocata:
     player.playedCard = card;
     player.playedCardIndex = cardIndex;
     player.revealedCardsCount++;
-    cardInPlayerHand.played = true; // Marca la carta come giocata nella mano del giocatore
+    cardInPlayerHand.played = true;
 
     // INIZIO CONSOLE LOGS
     console.log(`[SERVER-PLAYERCARDPLAYED] GIOCATORE ${currentPlayerId} HA GIOCATO CARTA. CARTE RIVELATE: ${player.revealedCardsCount}`);
@@ -526,28 +517,27 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
     // FINE CONSOLE LOGS
 
     if (currentPlayerPlayed && opponentPlayed) {
-       // INIZIO CONSOLE LOGS
+        // INIZIO CONSOLE LOGS
         console.log("[SERVER-PLAYERCARDPLAYED] ENTRAMBI HANNO GIOCATO. CHIAMANDO PROCESSPLAYEDCARDS...");
         // FINE CONSOLE LOGS
-        // Entrambi hanno giocato: chiama la funzione che processa il risultato della mano
         await processPlayedCards(roomCode, io);
     } else {
-      // INIZIO CONSOLE LOGS
+        // INIZIO CONSOLE LOGS
         console.log(`[SERVER-PLAYERCARDPLAYED] SOLO UN GIOCATORE HA GIOCATO. AVVISANDO AVVERSARIO (${opponentId}).`);
         // FINE CONSOLE LOGS
-        // Solo un giocatore ha giocato: Avvisa l'altro e passa il turno
+
+        // *** AGGIUNGI QUESTA RIGA ***
+        // Trasferisce il turno all'altro giocatore per la sua giocata
+        game.firstToReveal = opponentId; 
+
         io.to(opponentId).emit("opponentPlayedTheirCard", {
             opponentCard: card,
             opponentCardIndex: cardIndex,
-            // Non inviare firstToReveal qui. Verrà aggiornato in processPlayedCards.
         });
 
-        io.to(currentPlayerId).emit("waitingForOpponentPlay"); // Notifica il giocatore che ha giocato
-        // Il `game.firstToReveal` è già impostato nel backend per la prossima mano
-        // (viene fatto in processPlayedCards dopo che entrambi hanno giocato)
+        io.to(currentPlayerId).emit("waitingForOpponentPlay");
     }
 
-    // 🚨 SALVA LO STATO AGGIORNATO DEL GIOCO NEL DB QUI
     if (typeof matchesCollection !== 'undefined') {
         try {
             await matchesCollection.updateOne(
