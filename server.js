@@ -156,51 +156,80 @@ io.on("connection", (socket) => {
   // --- START OF GAME LOGIC ---
 
   
+// Backend: nel tuo file server.js
 socket.on("startRoundRequest", async () => {
     const roomCode = socket.data?.roomCode;
     if (!roomCode) return;
 
-    const room = await matchesCollection.findOne({ roomCode });
-    if (!room || room.players.length < 2) return;
+    // Recupera lo stato del gioco per la stanza
+    let game = gameStates[roomCode];
 
-    const round = gameStates[roomCode]?.round + 1 || 1;
-
-    const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
-    const values = [2, 3, 4, 5, 6, 7, "Fante", "Cavallo", "Re", "Asso"];
-    let deck = [];
-    for (let suit of suits) {
-        for (let value of values) {
-            deck.push({ suit, value });
-        }
+    // Se lo stato del gioco non esiste ancora (es. è il primissimo avvio del gioco, round 0)
+    if (!game) {
+        // Inizializza un nuovo stato del gioco. 'round' è 0 perché sarà incrementato a 1
+        // 'nextRoundReadyCount' è 0, sarà incrementato a 1 con questa richiesta
+        game = {
+            round: 0, 
+            players: {}, 
+            nextRoundReadyCount: 0, 
+            lastRoundWinner: null 
+        };
+        gameStates[roomCode] = game; 
     }
-    deck = deck.sort(() => Math.random() - 0.5);
 
-    const [player1, player2] = room.players;
+    // Incrementa il contatore di prontezza per il prossimo round per questo giocatore
+    game.nextRoundReadyCount++;
+    console.log(`[SERVER] Giocatore ${socket.id} è pronto per il round. Contatore: ${game.nextRoundReadyCount}`);
 
-   let firstPlayerForThisRound;
-// Se esiste un vincitore dal round precedente, quello inizia il nuovo round
-if (gameStates[roomCode] && gameStates[roomCode].lastRoundWinner) {
-    firstPlayerForThisRound = gameStates[roomCode].lastRoundWinner;
-} else {
-    // Altrimenti (ad esempio, è il primo round del gioco o nessun vincitore chiaro), scegli casualmente
-    firstPlayerForThisRound = Math.random() < 0.5 ? player1.socketId : player2.socketId;
-}
-  
-    const p1Cards = deck.splice(0, round);
-    p1Cards.forEach(card => card.played = false); // Resetta 'played' per le carte del giocatore 1
-    const p2Cards = deck.splice(0, round);
-    p2Cards.forEach(card => card.played = false);
+    // Se entrambi i giocatori sono pronti (il contatore ha raggiunto 2)
+    if (game.nextRoundReadyCount === 2) {
+        // Resetta il contatore per il prossimo utilizzo (per il round successivo)
+        game.nextRoundReadyCount = 0;
 
-    gameStates[roomCode] = {
-        round,
-        deck,
-        players: {
+        // Recupera i dettagli dei giocatori dalla collezione 'matches'
+        const room = await matchesCollection.findOne({ roomCode });
+        if (!room || room.players.length < 2) {
+            console.error(`[SERVER ERROR] Stanza ${roomCode} non valida o non ha 2 giocatori per avviare il round.`);
+            return;
+        }
+        const [player1, player2] = room.players; // Ottieni i socketId e nomi dei giocatori
+
+        // Il round attuale sarà il precedente + 1
+        const round = game.round + 1; // <--- QUESTA LINEA ERA round = gameStates[roomCode]?.round + 1 || 1; 
+
+        const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
+        const values = [2, 3, 4, 5, 6, 7, "Fante", "Cavallo", "Re", "Asso"];
+        let deck = [];
+        for (let suit of suits) {
+            for (let value of values) {
+                deck.push({ suit, value });
+            }
+        }
+        deck = deck.sort(() => Math.random() - 0.5);
+
+        // La determinazione di firstPlayerForThisRound
+        let firstPlayerForThisRound;
+        if (game.lastRoundWinner) { // <--- gameStates[roomCode] è ora 'game'
+            firstPlayerForThisRound = game.lastRoundWinner; 
+        } else {
+            firstPlayerForThisRound = Math.random() < 0.5 ? player1.socketId : player2.socketId;
+        }
+        
+        const p1Cards = deck.splice(0, round);
+        p1Cards.forEach(card => card.played = false); 
+        const p2Cards = deck.splice(0, round);
+        p2Cards.forEach(card => card.played = false);
+
+        // Aggiornamento dello stato del gioco 'gameStates[roomCode]'
+        game.round = round; // <--- Aggiorniamo 'game.round'
+        game.deck = deck;
+        game.players = { 
             [player1.socketId]: {
                 name: player1.name,
                 hand: p1Cards,
                 bet: "",
                 playedCard: null,
-                score: gameStates[roomCode]?.players[player1.socketId]?.score || 0,
+                score: game.players[player1.socketId]?.score || 0, // <--- Accedi tramite 'game.players'
                 currentRoundWins: 0,
                 revealedCardsCount: 0
             },
@@ -209,34 +238,53 @@ if (gameStates[roomCode] && gameStates[roomCode].lastRoundWinner) {
                 hand: p2Cards,
                 bet: "",
                 playedCard: null,
-                score: gameStates[roomCode]?.players[player2.socketId]?.score || 0,
+                score: game.players[player2.socketId]?.score || 0, // <--- Accedi tramite 'game.players'
                 currentRoundWins: 0,
                 revealedCardsCount: 0
             }
-        },
-        firstToReveal: firstPlayerForThisRound,
+        };
+        game.firstToReveal = firstPlayerForThisRound;
+        game.lastRoundWinner = null; // Resetta per il nuovo round
 
-      lastRoundWinner: null
-    };
+        // Emissione di 'startRoundData' a entrambi i giocatori
+        io.to(player1.socketId).emit("startRoundData", {
+            round,
+            yourCards: p1Cards,
+            opponent1Cards: round === 1 ? p2Cards : Array(round).fill(null),
+            firstToReveal: firstPlayerForThisRound,
+            opponentName: player2.name
+        });
 
+        io.to(player2.socketId).emit("startRoundData", {
+            round,
+            yourCards: p2Cards,
+            opponent1Cards: round === 1 ? p1Cards : Array(round).fill(null),
+            firstToReveal: firstPlayerForThisRound,
+            opponentName: player1.name
+        });
 
-    io.to(player1.socketId).emit("startRoundData", {
-        round,
-        yourCards: p1Cards,
-        opponent1Cards: round === 1 ? p2Cards : Array(round).fill(null),
-        firstToReveal: firstPlayerForThisRound,
-        opponentName: player2.name
-    });
+        console.log(`🎯 Round ${round} avviato nella stanza ${roomCode} per entrambi i giocatori.`);
 
-    io.to(player2.socketId).emit("startRoundData", {
-        round,
-        yourCards: p2Cards,
-        opponent1Cards: round === 1 ? p1Cards : Array(round).fill(null), 
-        firstToReveal: firstPlayerForThisRound,
-        opponentName: player1.name
-    });
-
-    console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}`);
+    } else {
+        // Un giocatore è pronto, ma l'altro no.
+        socket.emit("waitingForOpponentReady"); // Evento opzionale per feedback UI
+        console.log(`[SERVER] Giocatore ${socket.id} ha cliccato 'Prossimo Round', in attesa dell'altro.`);
+    }
+    
+    // Salva lo stato del gioco aggiornato nel DB (questo dovrebbe essere alla fine di ogni modifica allo stato)
+    // Questa parte era già fuori dal tuo blocco originale, e deve rimanere qui
+    if (typeof matchesCollection !== 'undefined') {
+        try {
+            await matchesCollection.updateOne(
+                { roomCode: roomCode },
+                { $set: { gameState: game } }
+            );
+        } catch (error) {
+            console.error(`[SERVER ERROR] Errore salvando lo stato del gioco per la stanza ${roomCode}:`, error);
+        }
+    } else {
+        console.error("matchesCollection non inizializzata. Impossibile salvare lo stato.");
+    }
 });
 
 socket.on("playerBet", ({ roomCode, bet }) => {
@@ -587,3 +635,4 @@ connectToDatabase().then(() => {
     console.log(`🚀 Server attivo su http://localhost:${port}`);
   });
 });
+
