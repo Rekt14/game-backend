@@ -315,6 +315,11 @@ function compareCards(c1, c2) {
     const card1 = player1.playedCard;
     const card2 = player2.playedCard;
 
+     // INIZIO CONSOLE LOGS
+    console.log(`[SERVER-PROCESSCARDS] INIZIO PROCESSPLAYEDCARDS PER STANZA ${roomCode}.`);
+    console.log(`[SERVER-PROCESSCARDS] CARTE GIOCATE - P1: ${card1 ? card1.value + ' di ' + card1.suit : 'N/A'}, P2: ${card2 ? card2.value + ' di ' + card2.suit : 'N/A'}`);
+    // FINE CONSOLE LOGS
+
     // 1. Determina il vincitore della mano
     const player1WinsHand = compareCards(card1, card2);
     const handWinnerId = player1WinsHand ? player1Id : player2Id;
@@ -329,6 +334,11 @@ function compareCards(c1, c2) {
     // ⚠️ Importante: `game.firstToReveal` qui deve essere il vincitore della MANO CORRENTE!
     // È questo che determina chi inizierà la PROSSIMA MANO all'interno dello stesso round.
     game.firstToReveal = handWinnerId;
+
+     // INIZIO CONSOLE LOGS
+    console.log(`[SERVER-PROCESSCARDS] VINCITORE MANO: ${handWinnerId}. P1 VITTORIE ROUND: ${player1.currentRoundWins}, P2 VITTORIE ROUND: ${player2.currentRoundWins}`);
+    console.log("[SERVER-PROCESSCARDS] EMETTENDO HANDRESULT...");
+    // FINE CONSOLE LOGS
 
     // 2. Notifica entrambi i giocatori del risultato della mano
     io.to(roomCode).emit("handResult", {
@@ -347,8 +357,15 @@ function compareCards(c1, c2) {
     player2.playedCard = null;
     player2.playedCardIndex = null;
 
+     // INIZIO CONSOLE LOGS
+    console.log(`[SERVER-PROCESSCARDS] CONTEGGI CARTE RIVELATE: P1: ${player1.revealedCardsCount}, P2: ${player2.revealedCardsCount}. ROUND CORRENTE: ${game.round}`);
+    // FINE CONSOLE LOGS
+
     // 4. Controlla se il round è finito (tutte le carte sono state giocate)
     if (player1.revealedCardsCount === game.round && player2.revealedCardsCount === game.round) {
+       // INIZIO CONSOLE LOGS
+        console.log("[SERVER-PROCESSCARDS] CONDIZIONE ROUND FINITO VERIFICATA.");
+        // FINE CONSOLE LOGS
         // IL ROUND È TERMINATO
         // Calcola e assegna i punteggi del round
         if (player1.currentRoundWins === player1.bet) {
@@ -372,7 +389,9 @@ function compareCards(c1, c2) {
             game.lastRoundWinner = null; // O un default, se il round finisce in parità
         }
 
-
+ // INIZIO CONSOLE LOGS
+        console.log("[SERVER-PROCESSCARDS] EMETTENDO ROUNDFINISHED...");
+        // FINE CONSOLE LOGS
         // 5. Notifica entrambi i giocatori che il round è finito e i punteggi finali
         io.to(roomCode).emit("roundFinished", {
             player1Score: player1.score,
@@ -399,6 +418,9 @@ function compareCards(c1, c2) {
 
         // Se il gioco è finito (round >= 10), gestisci la fine del gioco
         if (game.round >= 10) {
+           // INIZIO CONSOLE LOGS
+            console.log("[SERVER-PROCESSCARDS] GIOCO FINITO, EMETTENDO GAMEOVER...");
+            // FINE CONSOLE LOGS
             io.to(roomCode).emit("gameOver", {
                 finalScores: {
                     [player1Id]: player1.score,
@@ -413,6 +435,9 @@ function compareCards(c1, c2) {
         }
 
     } else {
+       // INIZIO CONSOLE LOGS
+        console.log("[SERVER-PROCESSCARDS] CONDIZIONE ROUND FINITO NON VERIFICATA. EMETTENDO NEXTHAND...");
+        // FINE CONSOLE LOGS
         // Round NON terminato, si passa alla prossima mano
         // `game.firstToReveal` è già impostato correttamente sul vincitore della mano corrente
         io.to(roomCode).emit("nextHand", {
@@ -491,13 +516,29 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
     player.revealedCardsCount++;
     cardInPlayerHand.played = true; // Marca la carta come giocata nella mano del giocatore
 
+    // INIZIO CONSOLE LOGS
+    console.log(`[SERVER-PLAYERCARDPLAYED] GIOCATORE ${currentPlayerId} HA GIOCATO CARTA. CARTE RIVELATE: ${player.revealedCardsCount}`);
+
+    const currentPlayerPlayed = player.playedCard !== null;
+    const opponentPlayed = opponent.playedCard !== null;
+
+    console.log(`[SERVER-PLAYERCARDPLAYED] STATO CARTE: TU GIOCATO: ${currentPlayerPlayed}, AVVERSARIO GIOCATO: ${opponentPlayed}`);
+    // FINE CONSOLE LOGS
+
+
     const currentPlayerPlayed = player.playedCard !== null;
     const opponentPlayed = opponent.playedCard !== null;
 
     if (currentPlayerPlayed && opponentPlayed) {
+       // INIZIO CONSOLE LOGS
+        console.log("[SERVER-PLAYERCARDPLAYED] ENTRAMBI HANNO GIOCATO. CHIAMANDO PROCESSPLAYEDCARDS...");
+        // FINE CONSOLE LOGS
         // Entrambi hanno giocato: chiama la funzione che processa il risultato della mano
         await processPlayedCards(roomCode, io);
     } else {
+      // INIZIO CONSOLE LOGS
+        console.log(`[SERVER-PLAYERCARDPLAYED] SOLO UN GIOCATORE HA GIOCATO. AVVISANDO AVVERSARIO (${opponentId}).`);
+        // FINE CONSOLE LOGS
         // Solo un giocatore ha giocato: Avvisa l'altro e passa il turno
         io.to(opponentId).emit("opponentPlayedTheirCard", {
             opponentCard: card,
