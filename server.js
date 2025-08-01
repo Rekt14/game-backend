@@ -186,7 +186,9 @@ if (gameStates[roomCode] && gameStates[roomCode].lastRoundWinner) {
 
     const [player1, player2] = room.players;
     const p1Cards = deck.splice(0, round);
+    p1Cards.forEach(card => card.played = false); // Resetta 'played' per le carte del giocatore 1
     const p2Cards = deck.splice(0, round);
+    p2Cards.forEach(card => card.played = false);
 
     gameStates[roomCode] = {
         round,
@@ -211,7 +213,7 @@ if (gameStates[roomCode] && gameStates[roomCode].lastRoundWinner) {
                 revealedCardsCount: 0
             }
         },
-        firstToReveal: firstPlayerForThisRound
+        firstToReveal: firstPlayerForThisRound,
 
       lastRoundWinner: null
     };
@@ -300,10 +302,10 @@ function compareCards(c1, c2) {
 
   async function processPlayedCards(roomCode, io) {
     let game = gameStates[roomCode];
-    if (!game) return; 
+    if (!game) return;
 
     const playerIds = Object.keys(game.players);
-    const player1Id = playerIds[0]; 
+    const player1Id = playerIds[0];
     const player2Id = playerIds[1];
 
     const player1 = game.players[player1Id];
@@ -314,24 +316,25 @@ function compareCards(c1, c2) {
 
     // 1. Determina il vincitore della mano
     const player1WinsHand = compareCards(card1, card2);
+    const handWinnerId = player1WinsHand ? player1Id : player2Id;
 
     // Aggiorna i conteggi delle mani vinte
     if (player1WinsHand) {
         player1.currentRoundWins++;
-        game.firstToReveal = player1Id; 
-        game.lastRoundWinner = player1Id;
     } else {
-        player2.currentRoundWins++; 
-        game.firstToReveal = player2Id; 
-        game.lastRoundWinner = player2Id;
+        player2.currentRoundWins++;
     }
+
+    // ⚠️ Importante: `game.firstToReveal` qui deve essere il vincitore della MANO CORRENTE!
+    // È questo che determina chi inizierà la PROSSIMA MANO all'interno dello stesso round.
+    game.firstToReveal = handWinnerId;
 
     // 2. Notifica entrambi i giocatori del risultato della mano
     io.to(roomCode).emit("handResult", {
-        winnerId: player1WinsHand ? player1Id : player2Id,
+        winnerId: handWinnerId,
         player1Card: card1,
         player2Card: card2,
-        player1Id: player1Id, 
+        player1Id: player1Id,
         player2Id: player2Id,
         player1Wins: player1.currentRoundWins,
         player2Wins: player2.currentRoundWins
@@ -344,7 +347,9 @@ function compareCards(c1, c2) {
     player2.playedCardIndex = null;
 
     // 4. Controlla se il round è finito (tutte le carte sono state giocate)
-     if (player1.revealedCardsCount === game.round && player2.revealedCardsCount === game.round) {
+    if (player1.revealedCardsCount === game.round && player2.revealedCardsCount === game.round) {
+        // IL ROUND È TERMINATO
+        // Calcola e assegna i punteggi del round
         if (player1.currentRoundWins === player1.bet) {
             player1.score += (10 + player1.bet);
         } else {
@@ -356,6 +361,17 @@ function compareCards(c1, c2) {
             player2.score -= Math.abs(player2.currentRoundWins - player2.bet);
         }
 
+        // ⚠️ Ora determina e salva il vincitore del ROUND per il prossimo round
+        // Questo è il momento in cui `game.lastRoundWinner` deve essere impostato.
+        if (player1.currentRoundWins > player2.currentRoundWins) { // Semplice confronto, adatta la tua logica di vittoria round
+            game.lastRoundWinner = player1Id;
+        } else if (player2.currentRoundWins > player1.currentRoundWins) {
+            game.lastRoundWinner = player2Id;
+        } else {
+            game.lastRoundWinner = null; // O un default, se il round finisce in parità
+        }
+
+
         // 5. Notifica entrambi i giocatori che il round è finito e i punteggi finali
         io.to(roomCode).emit("roundFinished", {
             player1Score: player1.score,
@@ -364,10 +380,12 @@ function compareCards(c1, c2) {
             player2Wins: player2.currentRoundWins,
             player1Id: player1Id,
             player2Id: player2Id,
-           player1Bet: player1.bet,
-           player2Bet: player2.bet,
-            currentRound: game.round, // Per il controllo "round >= 10"
-            firstToReveal: game.firstToReveal // Chi inizia il prossimo round
+            player1Bet: player1.bet,
+            player2Bet: player2.bet,
+            currentRound: game.round,
+            // ⚠️ Importante: Qui `firstToReveal` deve essere chi inizierà il PROSSIMO ROUND.
+            // Usiamo `game.lastRoundWinner` che abbiamo appena impostato.
+            firstToReveal: game.lastRoundWinner || player1Id // Fallback se non c'è un vincitore chiaro
         });
 
         // Resetta le scommesse e le mani vinte per il prossimo round
@@ -375,7 +393,7 @@ function compareCards(c1, c2) {
         player2.bet = "";
         player1.currentRoundWins = 0;
         player2.currentRoundWins = 0;
-        player1.revealedCardsCount = 0; 
+        player1.revealedCardsCount = 0;
         player2.revealedCardsCount = 0;
 
         // Se il gioco è finito (round >= 10), gestisci la fine del gioco
@@ -385,17 +403,17 @@ function compareCards(c1, c2) {
                     [player1Id]: player1.score,
                     [player2Id]: player2.score
                 },
-                playerNames: { // Invia anche i nomi per comodità
+                playerNames: {
                     [player1Id]: player1.name,
                     [player2Id]: player2.name
                 }
             });
-            // Potresti voler eliminare la stanza da gameStates qui, o archiviarla
             delete gameStates[roomCode];
         }
 
     } else {
         // Round NON terminato, si passa alla prossima mano
+        // `game.firstToReveal` è già impostato correttamente sul vincitore della mano corrente
         io.to(roomCode).emit("nextHand", {
             firstToReveal: game.firstToReveal,
             player1Wins: player1.currentRoundWins,
@@ -404,11 +422,15 @@ function compareCards(c1, c2) {
     }
 
     // 🚨 SALVA LO STATO AGGIORNATO NEL DB DOPO OGNI OPERAZIONE SIGNIFICATIVA 🚨
-   if (typeof matchesCollection !== 'undefined') {
-        await matchesCollection.updateOne(
-            { roomCode: roomCode },
-            { $set: { gameState: game } } // Salviamo l'oggetto `game` sotto la chiave `gameState`
-        );
+    if (typeof matchesCollection !== 'undefined') {
+        try {
+            await matchesCollection.updateOne(
+                { roomCode: roomCode },
+                { $set: { gameState: game } }
+            );
+        } catch (error) {
+            console.error(`[SERVER ERROR] Errore salvando lo stato del gioco per la stanza ${roomCode}:`, error);
+        }
     } else {
         console.error("matchesCollection non inizializzata. Impossibile salvare lo stato del gioco.");
     }
@@ -417,54 +439,86 @@ function compareCards(c1, c2) {
 
 // Backend: Nel socket.on("playerCardPlayed", ...)
 socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
-
     let game = gameStates[roomCode];
-   if (!game || !game.players[socket.id]) return;
-
-    // Registra la carta giocata e l'indice
-    game.players[socket.id].playedCard = card;
-    game.players[socket.id].playedCardIndex = cardIndex; // Salva l'indice per il frontend
-    
-    // Incrementa il conteggio delle carte rivelate dal giocatore
-    game.players[socket.id].revealedCardsCount++;
-
-    // Marca la carta come "giocata" all'interno della mano del backend
-    const cardInHand = game.players[socket.id].hand.find(c =>
-        c.suit === card.suit && c.value === card.value
-    );
-    if (cardInHand) {
-        cardInHand.played = true; // Aggiunge una proprietà 'played' alla carta
-    } else {
-        console.warn(`[SERVER] Carta giocata non trovata nella mano del giocatore ${socket.id}: ${card.value} di ${card.suit}`);
+    if (!game || !game.players[socket.id]) {
+        console.warn(`[SERVER] Tentativo di giocare in stanza non valida o giocatore non trovato. Stanza: ${roomCode}, ID: ${socket.id}`);
+        return;
     }
 
-    const playerIds = Object.keys(game.players);
     const currentPlayerId = socket.id;
+    const player = game.players[currentPlayerId];
+
+    const playerIds = Object.keys(game.players);
     const opponentId = playerIds.find(id => id !== currentPlayerId);
+    const opponent = game.players[opponentId];
+    if (!opponent) {
+        console.warn(`[SERVER] Avversario non trovato per la stanza ${roomCode}.`);
+        return;
+    }
 
-    const currentPlayerPlayed = game.players[currentPlayerId].playedCard !== null;
-    const opponentPlayed = game.players[opponentId].playedCard !== null;
+    // --- PUNTO CRUCIALE PER I CONTROLLI DI VALIDITÀ ---
 
+    // 1. Controllo: La carta esiste nella mano del giocatore e corrisponde?
+    // Usiamo cardIndex per trovare la carta specifica
+    const cardInPlayerHand = player.hand[cardIndex];
+    if (!cardInPlayerHand || cardInPlayerHand.suit !== card.suit || cardInPlayerHand.value !== card.value) {
+        socket.emit("gameError", "Carta non valida o non nella tua mano!");
+        console.warn(`[SERVER] Giocatore ${currentPlayerId} ha tentato di giocare una carta non valida: ${JSON.stringify(card)} ad indice ${cardIndex}`);
+        return;
+    }
+
+    // 2. Controllo: La carta è già stata giocata in questo round?
+    // Assicurati che `card.played` sia resettato a `false` o rimosso all'inizio di ogni round in `startRoundRequest`.
+    if (cardInPlayerHand.played) {
+        socket.emit("gameError", "Hai già giocato questa carta!");
+        console.warn(`[SERVER] Giocatore ${currentPlayerId} ha tentato di rigiocare una carta già giocata: ${JSON.stringify(cardInPlayerHand)}`);
+        return;
+    }
+
+    // 3. Controllo: È il turno del giocatore corrente?
+    if (game.firstToReveal !== currentPlayerId) {
+        socket.emit("gameError", "Non è il tuo turno di giocare!");
+        console.warn(`[SERVER] Giocatore ${currentPlayerId} ha tentato di giocare fuori turno. Turno corrente: ${game.firstToReveal}`);
+        return;
+    }
+
+    // --- FINE CONTROLLI ---
+
+    // Se tutti i controlli passano, procedi con la registrazione della giocata:
+    player.playedCard = card;
+    player.playedCardIndex = cardIndex;
+    player.revealedCardsCount++;
+    cardInPlayerHand.played = true; // Marca la carta come giocata nella mano del giocatore
+
+    const currentPlayerPlayed = player.playedCard !== null;
+    const opponentPlayed = opponent.playedCard !== null;
 
     if (currentPlayerPlayed && opponentPlayed) {
         // Entrambi hanno giocato: chiama la funzione che processa il risultato della mano
-        await processPlayedCards(roomCode, io); // Chiama la funzione asincrona con await
+        await processPlayedCards(roomCode, io);
     } else {
-        // Solo un giocatore ha giocato: Avvisa l'altro che la carta è stata giocata
+        // Solo un giocatore ha giocato: Avvisa l'altro e passa il turno
         io.to(opponentId).emit("opponentPlayedTheirCard", {
             opponentCard: card,
-            opponentCardIndex: cardIndex, // Importante per l'UI dell'avversario
+            opponentCardIndex: cardIndex,
+            // Non inviare firstToReveal qui. Verrà aggiornato in processPlayedCards.
         });
-      
-      io.to(currentPlayerId).emit("waitingForOpponentPlay");
+
+        io.to(currentPlayerId).emit("waitingForOpponentPlay"); // Notifica il giocatore che ha giocato
+        // Il `game.firstToReveal` è già impostato nel backend per la prossima mano
+        // (viene fatto in processPlayedCards dopo che entrambi hanno giocato)
     }
-    
+
     // 🚨 SALVA LO STATO AGGIORNATO DEL GIOCO NEL DB QUI
     if (typeof matchesCollection !== 'undefined') {
-        await matchesCollection.updateOne(
-            { roomCode: roomCode },
-            { $set: { gameState: game } } // Salviamo l'oggetto `game` sotto la chiave `gameState`
-        );
+        try {
+            await matchesCollection.updateOne(
+                { roomCode: roomCode },
+                { $set: { gameState: game } }
+            );
+        } catch (error) {
+            console.error(`[SERVER ERROR] Errore salvando lo stato del gioco per la stanza ${roomCode}:`, error);
+        }
     } else {
         console.error("matchesCollection non inizializzata. Impossibile salvare lo stato.");
     }
