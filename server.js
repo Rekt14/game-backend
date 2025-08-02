@@ -179,7 +179,6 @@ socket.on("startRoundRequest", async () => {
 
     // Incrementa il contatore di prontezza per il prossimo round per questo giocatore
     game.nextRoundReadyCount++;
-    console.log(`[SERVER] Giocatore ${socket.id} è pronto per il round. Contatore: ${game.nextRoundReadyCount}`);
 
     // Se entrambi i giocatori sono pronti (il contatore ha raggiunto 2)
     if (game.nextRoundReadyCount === 2) {
@@ -278,7 +277,6 @@ socket.on("startRoundRequest", async () => {
             // Emette l'evento 'waitingForOpponentReady' all'ALTRO giocatore,
             // con un flag diverso per indicare che è l'altro a essere in attesa.
             io.to(otherPlayer.socketId).emit("waitingForOpponentReady", { forPlayer: "opponent" });
-            console.log(`[SERVER] Giocatore ${socket.id} ha cliccato, notifico ${otherPlayer.socketId} che lo sta aspettando.`);
         }
     }
     
@@ -372,11 +370,8 @@ function compareCards(c1, c2) {
 
     const card1 = player1.playedCard;
     const card2 = player2.playedCard;
-
-     // INIZIO CONSOLE LOGS
-    console.log(`[SERVER-PROCESSCARDS] INIZIO PROCESSPLAYEDCARDS PER STANZA ${roomCode}.`);
-    console.log(`[SERVER-PROCESSCARDS] CARTE GIOCATE - P1: ${card1 ? card1.value + ' di ' + card1.suit : 'N/A'}, P2: ${card2 ? card2.value + ' di ' + card2.suit : 'N/A'}`);
-    // FINE CONSOLE LOGS
+    const card1Index = player1.playedCardIndex; // Salva l'indice di P1
+    const card2Index = player2.playedCardIndex; // Salva l'indice di P2
 
     // 1. Determina il vincitore della mano
     const player1WinsHand = compareCards(card1, card2);
@@ -389,14 +384,8 @@ function compareCards(c1, c2) {
         player2.currentRoundWins++;
     }
 
-    // ⚠️ Importante: `game.firstToReveal` qui deve essere il vincitore della MANO CORRENTE!
     // È questo che determina chi inizierà la PROSSIMA MANO all'interno dello stesso round.
     game.firstToReveal = handWinnerId;
-
-     // INIZIO CONSOLE LOGS
-    console.log(`[SERVER-PROCESSCARDS] VINCITORE MANO: ${handWinnerId}. P1 VITTORIE ROUND: ${player1.currentRoundWins}, P2 VITTORIE ROUND: ${player2.currentRoundWins}`);
-    console.log("[SERVER-PROCESSCARDS] EMETTENDO HANDRESULT...");
-    // FINE CONSOLE LOGS
 
     // 2. Notifica entrambi i giocatori del risultato della mano
     io.to(roomCode).emit("handResult", {
@@ -410,20 +399,16 @@ function compareCards(c1, c2) {
     });
 
     // 3. Resetta le carte giocate per il prossimo turno/mano
+    // !!! IMPORTANTE: Questo reset avviene DOPO aver usato le carte per handResult
+    // e PRIMA di decidere se inviare "roundFinished" o "nextHand"
     player1.playedCard = null;
     player1.playedCardIndex = null;
     player2.playedCard = null;
     player2.playedCardIndex = null;
 
-     // INIZIO CONSOLE LOGS
-    console.log(`[SERVER-PROCESSCARDS] CONTEGGI CARTE RIVELATE: P1: ${player1.revealedCardsCount}, P2: ${player2.revealedCardsCount}. ROUND CORRENTE: ${game.round}`);
-    // FINE CONSOLE LOGS
 
     // 4. Controlla se il round è finito (tutte le carte sono state giocate)
     if (player1.revealedCardsCount === game.round && player2.revealedCardsCount === game.round) {
-       // INIZIO CONSOLE LOGS
-        console.log("[SERVER-PROCESSCARDS] CONDIZIONE ROUND FINITO VERIFICATA.");
-        // FINE CONSOLE LOGS
         // IL ROUND È TERMINATO
         // Calcola e assegna i punteggi del round
         if (player1.currentRoundWins === player1.bet) {
@@ -438,18 +423,14 @@ function compareCards(c1, c2) {
         }
 
         // ⚠️ Ora determina e salva il vincitore del ROUND per il prossimo round
-        // Questo è il momento in cui `game.lastRoundWinner` deve essere impostato.
-        if (player1.currentRoundWins > player2.currentRoundWins) { // Semplice confronto, adatta la tua logica di vittoria round
+        if (player1.currentRoundWins > player2.currentRoundWins) {
             game.lastRoundWinner = player1Id;
         } else if (player2.currentRoundWins > player1.currentRoundWins) {
             game.lastRoundWinner = player2Id;
         } else {
-            game.lastRoundWinner = null; // O un default, se il round finisce in parità
+            game.lastRoundWinner = null;
         }
 
- // INIZIO CONSOLE LOGS
-        console.log("[SERVER-PROCESSCARDS] EMETTENDO ROUNDFINISHED...");
-        // FINE CONSOLE LOGS
         // 5. Notifica entrambi i giocatori che il round è finito e i punteggi finali
         io.to(roomCode).emit("roundFinished", {
             player1Score: player1.score,
@@ -461,9 +442,7 @@ function compareCards(c1, c2) {
             player1Bet: player1.bet,
             player2Bet: player2.bet,
             currentRound: game.round,
-            // ⚠️ Importante: Qui `firstToReveal` deve essere chi inizierà il PROSSIMO ROUND.
-            // Usiamo `game.lastRoundWinner` che abbiamo appena impostato.
-            firstToReveal: game.lastRoundWinner || player1Id // Fallback se non c'è un vincitore chiaro
+            firstToReveal: game.lastRoundWinner || player1Id
         });
 
         // Resetta le scommesse e le mani vinte per il prossimo round
@@ -476,9 +455,6 @@ function compareCards(c1, c2) {
 
         // Se il gioco è finito (round >= 10), gestisci la fine del gioco
         if (game.round >= 10) {
-           // INIZIO CONSOLE LOGS
-            console.log("[SERVER-PROCESSCARDS] GIOCO FINITO, EMETTENDO GAMEOVER...");
-            // FINE CONSOLE LOGS
             io.to(roomCode).emit("gameOver", {
                 finalScores: {
                     [player1Id]: player1.score,
@@ -493,15 +469,25 @@ function compareCards(c1, c2) {
         }
 
     } else {
-       // INIZIO CONSOLE LOGS
-        console.log("[SERVER-PROCESSCARDS] CONDIZIONE ROUND FINITO NON VERIFICATA. EMETTENDO NEXTHAND...");
-        // FINE CONSOLE LOGS
         // Round NON terminato, si passa alla prossima mano
         // `game.firstToReveal` è già impostato correttamente sul vincitore della mano corrente
-        io.to(roomCode).emit("nextHand", {
+        
+        // Emetti nextHand per player1, inviando la carta e l'indice di player2 (avversario)
+        io.to(player1Id).emit("nextHand", {
             firstToReveal: game.firstToReveal,
             player1Wins: player1.currentRoundWins,
-            player2Wins: player2.currentRoundWins
+            player2Wins: player2.currentRoundWins,
+            opponentCard: card2,     
+            opponentCardIndex: card2Index 
+        });
+
+        // Emetti nextHand per player2, inviando la carta e l'indice di player1 (avversario)
+        io.to(player2Id).emit("nextHand", {
+            firstToReveal: game.firstToReveal,
+            player1Wins: player1.currentRoundWins,
+            player2Wins: player2.currentRoundWins,
+            opponentCard: card1,       
+            opponentCardIndex: card1Index 
         });
     }
 
@@ -519,7 +505,6 @@ function compareCards(c1, c2) {
         console.error("matchesCollection non inizializzata. Impossibile salvare lo stato del gioco.");
     }
 }
-
 
 // Backend: Nel socket.on("playerCardPlayed", ...)
 socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
@@ -565,26 +550,13 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
     player.revealedCardsCount++;
     cardInPlayerHand.played = true;
 
-    // INIZIO CONSOLE LOGS
-    console.log(`[SERVER-PLAYERCARDPLAYED] GIOCATORE ${currentPlayerId} HA GIOCATO CARTA. CARTE RIVELATE: ${player.revealedCardsCount}`);
-
     const currentPlayerPlayed = player.playedCard !== null;
     const opponentPlayed = opponent.playedCard !== null;
 
-    console.log(`[SERVER-PLAYERCARDPLAYED] STATO CARTE: TU GIOCATO: ${currentPlayerPlayed}, AVVERSARIO GIOCATO: ${opponentPlayed}`);
-    // FINE CONSOLE LOGS
-
     if (currentPlayerPlayed && opponentPlayed) {
-        // INIZIO CONSOLE LOGS
-        console.log("[SERVER-PLAYERCARDPLAYED] ENTRAMBI HANNO GIOCATO. CHIAMANDO PROCESSPLAYEDCARDS...");
-        // FINE CONSOLE LOGS
+
         await processPlayedCards(roomCode, io);
     } else {
-        // INIZIO CONSOLE LOGS
-        console.log(`[SERVER-PLAYERCARDPLAYED] SOLO UN GIOCATORE HA GIOCATO. AVVISANDO AVVERSARIO (${opponentId}).`);
-        // FINE CONSOLE LOGS
-
-        // *** AGGIUNGI QUESTA RIGA ***
         // Trasferisce il turno all'altro giocatore per la sua giocata
         game.firstToReveal = opponentId; 
 
@@ -645,5 +617,6 @@ connectToDatabase().then(() => {
     console.log(`🚀 Server attivo su http://localhost:${port}`);
   });
 });
+
 
 
