@@ -368,29 +368,27 @@ function compareCards(c1, c2) {
     const player1 = game.players[player1Id];
     const player2 = game.players[player2Id];
 
+    // Catturiamo le carte e gli indici giocati nell'ultima mano PRIMA del reset
     const card1 = player1.playedCard;
     const card2 = player2.playedCard;
     const card1Index = player1.playedCardIndex;
     const card2Index = player2.playedCardIndex;
 
+    // 1. Determina il vincitore della mano
     const player1WinsHand = compareCards(card1, card2); // Assumi che compareCards sia definita altrove
     const handWinnerId = player1WinsHand ? player1Id : player2Id;
 
-    let lastToWinCard = null;
-    let lastToWinCardIndex = undefined;
-
+    // Aggiorna i conteggi delle mani vinte
     if (player1WinsHand) {
         player1.currentRoundWins++;
-        lastToWinCard = card1;
-        lastToWinCardIndex = card1Index;
     } else {
         player2.currentRoundWins++;
-        lastToWinCard = card2;
-        lastToWinCardIndex = card2Index;
     }
 
+    // È questo che determina chi inizierà la PROSSIMA MANO all'interno dello stesso round.
     game.firstToReveal = handWinnerId;
 
+    // 2. Notifica entrambi i giocatori del risultato della mano
     io.to(roomCode).emit("handResult", {
         winnerId: handWinnerId,
         player1Card: card1,
@@ -402,6 +400,7 @@ function compareCards(c1, c2) {
     });
 
     // 3. Resetta le carte giocate per il prossimo turno/mano
+    // Questo reset avviene DOPO che le carte e gli indici sono stati catturati
     player1.playedCard = null;
     player1.playedCardIndex = null;
     player2.playedCard = null;
@@ -428,13 +427,14 @@ function compareCards(c1, c2) {
         } else if (player2.currentRoundWins > player1.currentRoundWins) {
             game.lastRoundWinner = player2Id;
         } else {
-            game.lastRoundWinner = null;
+            game.lastRoundWinner = null; // O un default, se il round finisce in parità
         }
 
         // 5. Notifica entrambi i giocatori che il round è finito e i punteggi finali
-        io.to(roomCode).emit("roundFinished", {
-            player1Score: player1.score,
-            player2Score: player2.score,
+        // *** Due emissioni separate per inviare la carta dell'avversario ***
+        io.to(player1Id).emit("roundFinished", {
+            player1Score: player1.score, // Punteggio finale del giocatore 1
+            player2Score: player2.score, // Punteggio finale del giocatore 2
             player1Wins: player1.currentRoundWins,
             player2Wins: player2.currentRoundWins,
             player1Id: player1Id,
@@ -442,13 +442,24 @@ function compareCards(c1, c2) {
             player1Bet: player1.bet,
             player2Bet: player2.bet,
             currentRound: game.round,
-            firstToReveal: game.lastRoundWinner || player1Id, // Fallback se non c'è un vincitore chiaro
-            player1LastCardPlayed: card1,
-            player1LastCardPlayedIndex: card1Index,
-            player2LastCardPlayed: card2,
-            player2LastCardPlayedIndex: card2Index,
-            lastHandWinnerCard: lastToWinCard,
-            lastHandWinnerCardIndex: lastToWinCardIndex
+            firstToReveal: game.lastRoundWinner || player1Id,
+            opponentLastCardPlayed: card2,
+            opponentLastCardPlayedIndex: card2Index
+        });
+
+        io.to(player2Id).emit("roundFinished", {
+            player1Score: player1.score, // Punteggio finale del giocatore 1
+            player2Score: player2.score, // Punteggio finale del giocatore 2
+            player1Wins: player1.currentRoundWins,
+            player2Wins: player2.currentRoundWins,
+            player1Id: player1Id,
+            player2Id: player2Id,
+            player1Bet: player1.bet,
+            player2Bet: player2.bet,
+            currentRound: game.round,
+            firstToReveal: game.lastRoundWinner || player1Id,
+            opponentLastCardPlayed: card1,
+            opponentLastCardPlayedIndex: card1Index
         });
 
         // Resetta le scommesse e le mani vinte per il prossimo round
@@ -477,12 +488,22 @@ function compareCards(c1, c2) {
     } else {
         // Round NON terminato, si passa alla prossima mano
         // `game.firstToReveal` è già impostato correttamente sul vincitore della mano corrente
-        io.to(roomCode).emit("nextHand", {
+
+        // *** Due emissioni separate per inviare la carta dell'avversario ***
+        io.to(player1Id).emit("nextHand", {
             firstToReveal: game.firstToReveal,
             player1Wins: player1.currentRoundWins,
             player2Wins: player2.currentRoundWins,
-            lastHandWinnerCard: lastToWinCard,
-            lastHandWinnerCardIndex: lastToWinCardIndex
+            opponentCard: card2,
+            opponentCardIndex: card2Index
+        });
+
+        io.to(player2Id).emit("nextHand", {
+            firstToReveal: game.firstToReveal,
+            player1Wins: player1.currentRoundWins,
+            player2Wins: player2.currentRoundWins,
+            opponentCard: card1,
+            opponentCardIndex: card1Index
         });
     }
 
@@ -612,6 +633,7 @@ connectToDatabase().then(() => {
     console.log(`🚀 Server attivo su http://localhost:${port}`);
   });
 });
+
 
 
 
