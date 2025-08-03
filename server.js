@@ -373,7 +373,7 @@ function compareCards(c1, c2) {
     const card1Index = player1.playedCardIndex;
     const card2Index = player2.playedCardIndex;
 
-    const player1WinsHand = compareCards(card1, card2);
+    const player1WinsHand = compareCards(card1, card2); // Assumi che compareCards sia definita altrove
     const handWinnerId = player1WinsHand ? player1Id : player2Id;
 
     let lastToWinCard = null;
@@ -401,32 +401,92 @@ function compareCards(c1, c2) {
         player2Wins: player2.currentRoundWins
     });
 
+    // 3. Resetta le carte giocate per il prossimo turno/mano
     player1.playedCard = null;
     player1.playedCardIndex = null;
     player2.playedCard = null;
     player2.playedCardIndex = null;
 
+    // 4. Controlla se il round è finito (tutte le carte sono state giocate)
     if (player1.revealedCardsCount === game.round && player2.revealedCardsCount === game.round) {
-        // ... (Logica di fine round, roundFinished emissione come prima) ...
+        // IL ROUND È TERMINATO
+        // Calcola e assegna i punteggi del round
+        if (player1.currentRoundWins === player1.bet) {
+            player1.score += (10 + player1.bet);
+        } else {
+            player1.score -= Math.abs(player1.currentRoundWins - player1.bet);
+        }
+        if (player2.currentRoundWins === player2.bet) {
+            player2.score += (10 + player2.bet);
+        } else {
+            player2.score -= Math.abs(player2.currentRoundWins - player2.bet);
+        }
+
+        // ⚠️ Ora determina e salva il vincitore del ROUND per il prossimo round
+        if (player1.currentRoundWins > player2.currentRoundWins) {
+            game.lastRoundWinner = player1Id;
+        } else if (player2.currentRoundWins > player1.currentRoundWins) {
+            game.lastRoundWinner = player2Id;
+        } else {
+            game.lastRoundWinner = null;
+        }
+
+        // 5. Notifica entrambi i giocatori che il round è finito e i punteggi finali
         io.to(roomCode).emit("roundFinished", {
-            // ... tutti i parametri esistenti ...
+            player1Score: player1.score,
+            player2Score: player2.score,
+            player1Wins: player1.currentRoundWins,
+            player2Wins: player2.currentRoundWins,
+            player1Id: player1Id,
+            player2Id: player2Id,
+            player1Bet: player1.bet,
+            player2Bet: player2.bet,
+            currentRound: game.round,
+            firstToReveal: game.lastRoundWinner || player1Id, // Fallback se non c'è un vincitore chiaro
+            player1LastCardPlayed: card1,
+            player1LastCardPlayedIndex: card1Index,
+            player2LastCardPlayed: card2,
+            player2LastCardPlayedIndex: card2Index,
             lastHandWinnerCard: lastToWinCard,
             lastHandWinnerCardIndex: lastToWinCardIndex
         });
 
+        // Resetta le scommesse e le mani vinte per il prossimo round
+        player1.bet = "";
+        player2.bet = "";
+        player1.currentRoundWins = 0;
+        player2.currentRoundWins = 0;
+        player1.revealedCardsCount = 0;
+        player2.revealedCardsCount = 0;
+
+        // Se il gioco è finito (round >= 10), gestisci la fine del gioco
+        if (game.round >= 10) {
+            io.to(roomCode).emit("gameOver", {
+                finalScores: {
+                    [player1Id]: player1.score,
+                    [player2Id]: player2.score
+                },
+                playerNames: {
+                    [player1Id]: player1.name,
+                    [player2Id]: player2.name
+                }
+            });
+            delete gameStates[roomCode];
+        }
+
     } else {
         // Round NON terminato, si passa alla prossima mano
-        // Unica emissione a tutta la stanza
-        io.to(roomCode).emit("nextHand", { // <--- Modificato a io.to(roomCode)
+        // `game.firstToReveal` è già impostato correttamente sul vincitore della mano corrente
+        io.to(roomCode).emit("nextHand", {
             firstToReveal: game.firstToReveal,
             player1Wins: player1.currentRoundWins,
             player2Wins: player2.currentRoundWins,
-            lastHandWinnerCard: lastToWinCard,       // <--- Questi dati sono gli stessi per tutti
-            lastHandWinnerCardIndex: lastToWinCardIndex // <--- Questi dati sono gli stessi per tutti
+            lastHandWinnerCard: lastToWinCard,
+            lastHandWinnerCardIndex: lastToWinCardIndex
         });
     }
-    
-  // 🚨 SALVA LO STATO AGGIORNATO NEL DB DOPO OGNI OPERAZIONE SIGNIFICATIVA 🚨
+
+    // 🚨 SALVA LO STATO AGGIORNATO NEL DB DOPO OGNI OPERAZIONE SIGNIFICATIVA 🚨
     if (typeof matchesCollection !== 'undefined') {
         try {
             await matchesCollection.updateOne(
@@ -439,7 +499,6 @@ function compareCards(c1, c2) {
     } else {
         console.error("matchesCollection non inizializzata. Impossibile salvare lo stato del gioco.");
     }
-}
 }
 
 // Backend: Nel socket.on("playerCardPlayed", ...)
@@ -553,6 +612,7 @@ connectToDatabase().then(() => {
     console.log(`🚀 Server attivo su http://localhost:${port}`);
   });
 });
+
 
 
 
