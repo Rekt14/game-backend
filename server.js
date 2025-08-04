@@ -7,6 +7,8 @@ const { MongoClient, ObjectId } = require("mongodb");
 
 const gameStates = {};
 
+const pendingInvitations = {}; // { inviterSocketId: { invitedSocketId: string, timeoutId: Timeout } }
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -56,102 +58,279 @@ app.get("/records", async (req, res) => {
 
 // ✅ Nuova API: numero giocatori online
 app.get("/online-players", async (req, res) => {
-  try {
-    // Rimuove i giocatori inattivi da oltre 30 secondi
-    const cutoff = new Date(Date.now() - 30 * 1000);
-    await onlinePlayersCollection.deleteMany({ lastSeen: { $lt: cutoff } });
+    try {
+        const cutoff = new Date(Date.now() - 30 * 1000);
+        await onlinePlayersCollection.deleteMany({ lastSeen: { $lt: cutoff } });
 
-    const count = await onlinePlayersCollection.countDocuments();
-    res.json({ online: count });
-  } catch (err) {
-    res.status(500).send("Errore nel conteggio giocatori online");
-  }
+        // Includiamo isInGame nella projection
+        const onlinePlayers = await onlinePlayersCollection.find({}, { projection: { name: 1, socketId: 1, isInGame: 1, _id: 0 } }).toArray();
+
+        res.json({ online: onlinePlayers.length, players: onlinePlayers });
+    } catch (err) {
+        console.error("❌ Errore nel conteggio/recupero giocatori online:", err);
+        res.status(500).send("Errore nel recupero dei giocatori online");
+    }
 });
 
 // 🎮 Socket.io - gestione giocatori online e game logic
 io.on("connection", (socket) => {
-  console.log("🟢 Connessione socket:", socket.id);
-  let heartbeatInterval; // Dichiarata nello scope di 'connection'
+    console.log("🟢 Connessione socket:", socket.id);
+    let heartbeatInterval; // Dichiarata nello scope di 'connection'
 
-  // ✅ Registrazione giocatore online
-  socket.on("registerPlayer", async (name) => {
-    console.log(`🧍 Registrazione giocatore: ${name} (${socket.id})`);
-    try {
-      await onlinePlayersCollection.insertOne({
-        socketId: socket.id,
-        name,
-        lastSeen: new Date()
-      });
+    // ✅ Registrazione giocatore online
+    socket.on("registerPlayer", async (name) => {
+        console.log(`🧍 Registrazione giocatore: ${name} (${socket.id})`);
+        try {
+            await onlinePlayersCollection.insertOne({
+                socketId: socket.id,
+                name,
+                lastSeen: new Date(),
+                isInGame: false // Aggiunto questo campo
+            });
 
-      socket.data.name = name;
+            socket.data.name = name;
+            socket.data.isInGame = false; // Inizializza anche socket.data
 
-      heartbeatInterval = setInterval(async () => {
-        await onlinePlayersCollection.updateOne(
-          { socketId: socket.id },
-          { $set: { lastSeen: new Date() } }
-        );
-      }, 10000);
-    } catch (err) {
-      console.error("❌ Errore registrazione giocatore:", err);
-    }
-  });
+            heartbeatInterval = setInterval(async () => {
+                await onlinePlayersCollection.updateOne(
+                    { socketId: socket.id },
+                    { $set: { lastSeen: new Date() } }
+                );
+            }, 10000);
+        } catch (err) {
+            console.error("❌ Errore registrazione giocatore:", err);
+            socket.emit("gameError", "Errore durante la registrazione del giocatore.");
+        }
+    });
 
-  // 🎮 Crea stanza multiplayer
-  socket.on("createRoom", async ({ name }, callback) => {
-    const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-    try {
-      await matchesCollection.insertOne({
-        roomCode,
-        players: [{ socketId: socket.id, name }],
-        createdAt: new Date()
-      });
+    // --- NUOVE IMPLEMENTAZIONI PER GLI INVITI ---
 
-      socket.join(roomCode);
-      socket.data.name = name;
-      socket.data.roomCode = roomCode;
+    // 1. Invio di un invito
+    socket.on("sendInvitation", async ({ invitedSocketId }) => {
+        const inviterName = socket.data.name;
+        const inviterSocketId = socket.id;
 
-      console.log(`🛠️  Stanza creata: ${roomCode} da ${name}`);
-      callback({ success: true, roomCode });
-    } catch (err) {
-      console.error("❌ Errore creazione stanza:", err);
-      callback({ success: false, error: "Errore creazione stanza" });
-    }
-  });
+        if (!inviterName) {
+            console.warn(`[SERVER] Invitante senza nome (socket: ${inviterSocketId}) ha tentato di inviare un invito.`);
+            socket.emit("gameError", "Errore: nome invitante non disponibile.");
+            return;
+        }
 
-  // 🎮 Unisciti a una stanza esistente
-  socket.on("joinRoom", async ({ name, roomCode }, callback) => {
-    const match = await matchesCollection.findOne({ roomCode });
+        if (inviterSocketId === invitedSocketId) {
+            socket.emit("gameError", "Non puoi invitare te stesso!");
+            return;
+        }
 
-    if (!match) return callback({ success: false, error: "Stanza non trovata" });
-    if (match.players.length >= 2) return callback({ success: false, error: "Stanza piena" });
+        const inviterData = await onlinePlayersCollection.findOne({ socketId: inviterSocketId });
+        const invitedData = await onlinePlayersCollection.findOne({ socketId: invitedSocketId });
 
-    try {
-      await matchesCollection.updateOne(
-        { roomCode },
-        { $push: { players: { socketId: socket.id, name } } }
-      );
+        if (!invitedData) {
+            socket.emit("gameError", "Il giocatore che hai invitato non è più online.");
+            return;
+        }
 
-      socket.join(roomCode);
-      socket.data.name = name;
-      socket.data.roomCode = roomCode;
+        if (inviterData.isInGame || invitedData.isInGame) {
+            socket.emit("gameError", "Uno dei giocatori è già in partita.");
+            return;
+        }
 
-      const otherPlayer = match.players[0]; // Creatore stanza
-      const opponentName = otherPlayer.name;
+        // Pulisci un eventuale invito precedente da questo invitante
+        if (pendingInvitations[inviterSocketId]) {
+            clearTimeout(pendingInvitations[inviterSocketId].timeoutId);
+            delete pendingInvitations[inviterSocketId];
+        }
 
-      // 🔔 Notifica entrambi i giocatori + invia socketId creatore
-      io.to(roomCode).emit("bothPlayersReady", {
-        opponent1: opponentName,
-        opponent2: name,
-        creatorSocketId: otherPlayer.socketId
-      });
+        const INVITE_TIMEOUT_MS = 60000; // 60 secondi
 
-      console.log(`👥 ${name} si è unito alla stanza ${roomCode} con ${opponentName}`);
-      callback({ success: true });
-    } catch (err) {
-      console.error("❌ Errore unione stanza:", err);
-      callback({ success: false, error: "Errore unione stanza" });
-    }
-  });
+        const invitationTimeout = setTimeout(() => {
+            io.to(inviterSocketId).emit("invitationExpired", {
+                invitedName: invitedData.name
+            });
+            // Non inviamo all'invitato qui, la sua UI gestirà il countdown
+            console.log(`⏳ Invito da ${inviterName} a ${invitedData.name} scaduto.`);
+            delete pendingInvitations[inviterSocketId];
+        }, INVITE_TIMEOUT_MS);
+
+        pendingInvitations[inviterSocketId] = {
+            invitedSocketId: invitedSocketId,
+            timeoutId: invitationTimeout,
+            invitedPlayerName: invitedData.name // Salva il nome per il feedback
+        };
+
+        console.log(`✉️ Invito inviato da ${inviterName} (${inviterSocketId}) a ${invitedData.name} (${invitedSocketId})`);
+
+        io.to(invitedSocketId).emit("receiveInvitation", {
+            inviterName: inviterName,
+            inviterSocketId: inviterSocketId,
+            timeout: INVITE_TIMEOUT_MS // Invia il timeout anche al client per il conto alla rovescia
+        });
+        socket.emit("invitationSent", { invitedName: invitedData.name });
+    });
+
+    // 2. Accettazione di un invito
+    socket.on("acceptInvitation", async ({ inviterSocketId }) => {
+        // Cancella il timeout dell'invito in sospeso
+        if (pendingInvitations[inviterSocketId]) {
+            clearTimeout(pendingInvitations[inviterSocketId].timeoutId);
+            delete pendingInvitations[inviterSocketId];
+            console.log(`✅ Invito da ${inviterSocketId} accettato, timeout cancellato.`);
+        }
+
+        const invitedPlayerName = socket.data.name;
+        const invitedPlayerSocketId = socket.id;
+
+        const inviter = await onlinePlayersCollection.findOne({ socketId: inviterSocketId });
+
+        if (!inviter) {
+            socket.emit("gameError", "Il giocatore che ti ha invitato non è più online o ha annullato l'invito.");
+            return;
+        }
+
+        if (inviter.isInGame || socket.data.isInGame) {
+            socket.emit("gameError", "Uno dei giocatori è già in una partita.");
+            return;
+        }
+
+        const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+        try {
+            await matchesCollection.insertOne({
+                roomCode,
+                players: [
+                    { socketId: inviter.socketId, name: inviter.name },
+                    { socketId: invitedPlayerSocketId, name: invitedPlayerName }
+                ],
+                createdAt: new Date()
+            });
+
+            const inviterSocket = io.sockets.sockets.get(inviter.socketId);
+            if (inviterSocket) {
+                inviterSocket.join(roomCode);
+                inviterSocket.data.roomCode = roomCode;
+                inviterSocket.data.name = inviter.name;
+                inviterSocket.data.isInGame = true; // Aggiorna la socket.data
+                await onlinePlayersCollection.updateOne({ socketId: inviter.socketId }, { $set: { isInGame: true } });
+                console.log(`🛠️ ${inviter.name} (invitante) unito a stanza ${roomCode}. isInGame: true.`);
+            } else {
+                console.error(`[SERVER ERROR] Socket invitante ${inviter.socketId} non trovata per unirsi alla stanza.`);
+                socket.emit("gameError", "Errore nell'unione alla stanza (invitante non trovato).");
+                return;
+            }
+
+            socket.join(roomCode);
+            socket.data.roomCode = roomCode;
+            socket.data.name = invitedPlayerName;
+            socket.data.isInGame = true; // Aggiorna la socket.data
+            await onlinePlayersCollection.updateOne({ socketId: invitedPlayerSocketId }, { $set: { isInGame: true } });
+            console.log(`👥 ${invitedPlayerName} (invitato) unito a stanza ${roomCode}. isInGame: true.`);
+
+            // Evento rinominato da "bothPlayersReady" a "gameReady"
+            io.to(roomCode).emit("gameReady", {
+                opponent1: inviter.name,
+                opponent2: invitedPlayerName,
+                creatorSocketId: inviter.socketId,
+                roomCode: roomCode
+            });
+
+            console.log(`🎉 Stanza ${roomCode} creata e giocatori ${inviter.name} e ${invitedPlayerName} uniti.`);
+
+        } catch (err) {
+            console.error("❌ Errore creazione/unione stanza su accettazione invito:", err);
+            socket.emit("gameError", "Errore durante l'accettazione dell'invito.");
+        }
+    });
+
+    // 3. Rifiuto di un invito
+    socket.on("declineInvitation", async ({ inviterSocketId }) => {
+        // Cancella il timeout dell'invito in sospeso
+        if (pendingInvitations[inviterSocketId]) {
+            clearTimeout(pendingInvitations[inviterSocketId].timeoutId);
+            const invitedPlayerName = pendingInvitations[inviterSocketId].invitedPlayerName; // Recupera il nome
+            delete pendingInvitations[inviterSocketId];
+            console.log(`🚫 Invito da ${inviterSocketId} rifiutato, timeout cancellato.`);
+
+            // Notifica l'invitante che l'invito è stato rifiutato
+            io.to(inviterSocketId).emit("invitationDeclined", {
+                declinerName: invitedPlayerName
+            });
+            console.log(`🚫 Invito da ${inviterSocketId} rifiutato da ${invitedPlayerName}`);
+
+        } else {
+            console.log(`🚫 Invito rifiutato da ${socket.id}, ma invito originale non trovato (invitante ${inviterSocketId}).`);
+            // Potrebbe essere stato un invito già scaduto o annullato dal mittente
+        }
+    });
+
+    // --- FINE IMPLEMENTAZIONI INVITI ---
+
+
+    // 🎮 Crea stanza multiplayer (MODIFICA: Aggiungi isInGame update)
+    socket.on("createRoom", async ({ name }, callback) => {
+        const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+        try {
+            await matchesCollection.insertOne({
+                roomCode,
+                players: [{ socketId: socket.id, name }],
+                createdAt: new Date()
+            });
+
+            socket.join(roomCode);
+            socket.data.name = name;
+            socket.data.roomCode = roomCode;
+            socket.data.isInGame = true; // Imposta isInGame a true
+            await onlinePlayersCollection.updateOne({ socketId: socket.id }, { $set: { isInGame: true } });
+
+
+            console.log(`🛠️ Stanza creata: ${roomCode} da ${name}. isInGame: true.`);
+            callback({ success: true, roomCode });
+        } catch (err) {
+            console.error("❌ Errore creazione stanza:", err);
+            socket.emit("gameError", "Errore durante la creazione della stanza.");
+            callback({ success: false, error: "Errore creazione stanza" });
+        }
+    });
+
+    // 🎮 Unisciti a una stanza esistente (MODIFICA: Aggiungi isInGame update e cambia evento)
+    socket.on("joinRoom", async ({ name, roomCode }, callback) => {
+        const match = await matchesCollection.findOne({ roomCode });
+
+        if (!match) return callback({ success: false, error: "Stanza non trovata" });
+        if (match.players.length >= 2) return callback({ success: false, error: "Stanza piena" });
+
+        try {
+            await matchesCollection.updateOne(
+                { roomCode },
+                { $push: { players: { socketId: socket.id, name } } }
+            );
+
+            socket.join(roomCode);
+            socket.data.name = name;
+            socket.data.roomCode = roomCode;
+            socket.data.isInGame = true; // Imposta isInGame a true
+            await onlinePlayersCollection.updateOne({ socketId: socket.id }, { $set: { isInGame: true } });
+
+            const otherPlayer = match.players[0]; // Creatore stanza
+            const opponentName = otherPlayer.name;
+
+            // Aggiorna lo stato isInGame dell'altro giocatore se necessario (dovrebbe essere già true se ha creato)
+            await onlinePlayersCollection.updateOne({ socketId: otherPlayer.socketId }, { $set: { isInGame: true } });
+
+            // 🔔 Notifica entrambi i giocatori + invia socketId creatore (MODIFICA: usa "gameReady")
+            io.to(roomCode).emit("gameReady", {
+                opponent1: opponentName,
+                opponent2: name,
+                creatorSocketId: otherPlayer.socketId,
+                roomCode: roomCode // Aggiungi roomCode anche qui
+            });
+
+            console.log(`👥 ${name} si è unito alla stanza ${roomCode} con ${opponentName}. isInGame: true.`);
+            callback({ success: true });
+        } catch (err) {
+            console.error("❌ Errore unione stanza:", err);
+            socket.emit("gameError", "Errore durante l'unione alla stanza.");
+            callback({ success: false, error: "Errore unione stanza" });
+        }
+    });
 
   // --- START OF GAME LOGIC ---
 
@@ -599,39 +778,90 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
 });
 
   
-  // 🔌 Disconnessione
-  socket.on("disconnect", async () => {
-    console.log("🔴 Disconnessione:", socket.id);
-    try {
-      clearInterval(heartbeatInterval);
-      await onlinePlayersCollection.deleteOne({ socketId: socket.id });
+   // 🔌 Disconnessione (MODIFICA: Migliorata gestione isInGame e pendingInvitations)
+    socket.on("disconnect", async () => {
+        console.log("🔴 Disconnessione:", socket.id);
+        try {
+            clearInterval(heartbeatInterval);
 
-      const roomCode = socket.data?.roomCode;
-      if (roomCode) {
-        await matchesCollection.updateOne(
-          { roomCode },
-          { $pull: { players: { socketId: socket.id } } }
-        );
+            // Rimuovi il giocatore dalla lista dei pending invitations se era un invitante
+            if (pendingInvitations[socket.id]) {
+                clearTimeout(pendingInvitations[socket.id].timeoutId);
+                console.log(`🗑️ Invito pendente da ${socket.id} cancellato a causa di disconnessione.`);
+                delete pendingInvitations[socket.id];
+            }
+            // Se il giocatore disconnesso era l'invitato in un pending invitation
+            for (const inviterId in pendingInvitations) {
+                if (pendingInvitations[inviterId].invitedSocketId === socket.id) {
+                    clearTimeout(pendingInvitations[inviterId].timeoutId);
+                    io.to(inviterId).emit("invitationExpired", {
+                        invitedName: pendingInvitations[inviterId].invitedPlayerName // Feedback all'invitante
+                    });
+                    console.log(`🗑️ Invito da ${inviterId} a ${socket.id} cancellato a causa di disconnessione invitato.`);
+                    delete pendingInvitations[inviterId];
+                }
+            }
 
-        const room = await matchesCollection.findOne({ roomCode });
 
-        if (!room || room.players.length === 0) {
-          await matchesCollection.deleteOne({ roomCode });
-          console.log(`🗑️ Stanza ${roomCode} eliminata (vuota)`);
+            // Imposta isInGame a false e poi rimuovi il giocatore
+            const playerInDb = await onlinePlayersCollection.findOne({ socketId: socket.id });
+            if (playerInDb) {
+                // Se il giocatore esisteva, aggiorna isInGame e poi rimuovilo.
+                await onlinePlayersCollection.updateOne(
+                    { socketId: socket.id },
+                    { $set: { isInGame: false } }
+                );
+                await onlinePlayersCollection.deleteOne({ socketId: socket.id });
+            }
+
+
+            const roomCode = socket.data?.roomCode;
+            if (roomCode) {
+                const room = await matchesCollection.findOne({ roomCode });
+                if (room && room.players.length > 1) {
+                    const otherPlayer = room.players.find(p => p.socketId !== socket.id);
+                    if (otherPlayer) {
+                        await onlinePlayersCollection.updateOne(
+                            { socketId: otherPlayer.socketId },
+                            { $set: { isInGame: false } } // Rilascia l'altro giocatore
+                        );
+                        io.to(otherPlayer.socketId).emit("opponentDisconnected", { roomCode: roomCode });
+                        console.log(`📢 Avversario ${otherPlayer.name} notificato della disconnessione di ${socket.data?.name || socket.id}.`);
+                    }
+                }
+
+                await matchesCollection.updateOne(
+                    { roomCode },
+                    { $pull: { players: { socketId: socket.id } } }
+                );
+
+                const updatedRoom = await matchesCollection.findOne({ roomCode });
+
+                if (!updatedRoom || updatedRoom.players.length === 0) {
+                    await matchesCollection.deleteOne({ roomCode });
+                    console.log(`🗑️ Stanza ${roomCode} eliminata (vuota)`);
+                    // Rimuovi anche lo stato del gioco se la stanza è stata eliminata
+                    if (gameStates[roomCode]) {
+                        delete gameStates[roomCode];
+                        console.log(`🗑️ Stato del gioco per stanza ${roomCode} eliminato.`);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error("❌ Errore rimozione stanza/giocatore su disconnessione:", err);
         }
-      }
-    } catch (err) {
-      console.error("❌ Errore rimozione stanza/giocatore:", err);
-    }
-  });
-}); 
+    });
+
+}); // Fine di io.on("connection")
 
 // 🚀 Avvio server
 connectToDatabase().then(() => {
-  const port = process.env.PORT || 3000;
-  server.listen(port, () => {
-    console.log(`🚀 Server attivo su http://localhost:${port}`);
-  });
+    const port = process.env.PORT || 3000;
+    server.listen(port, () => {
+        console.log(`🚀 Server attivo su http://localhost:${port}`);
+    });
+}).catch(err => {
+    console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
 
 
