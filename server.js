@@ -536,7 +536,7 @@ function compareCards(c1, c2) {
     return v1 > v2;
 }
 
-  async function processPlayedCards(roomCode, io) {
+async function processPlayedCards(roomCode, io) {
     let game = gameStates[roomCode];
     if (!game) return;
 
@@ -554,7 +554,7 @@ function compareCards(c1, c2) {
     const card2Index = player2.playedCardIndex;
 
     // 1. Determina il vincitore della mano
-    const player1WinsHand = compareCards(card1, card2); // Assumi che compareCards sia definita altrove
+    const player1WinsHand = compareCards(card1, card2);
     const handWinnerId = player1WinsHand ? player1Id : player2Id;
 
     // Aggiorna i conteggi delle mani vinte
@@ -579,7 +579,6 @@ function compareCards(c1, c2) {
     });
 
     // 3. Resetta le carte giocate per il prossimo turno/mano
-    // Questo reset avviene DOPO che le carte e gli indici sono stati catturati
     player1.playedCard = null;
     player1.playedCardIndex = null;
     player2.playedCard = null;
@@ -592,28 +591,23 @@ function compareCards(c1, c2) {
         if (player1.currentRoundWins === player1.bet) {
             player1.score += (10 + player1.bet);
         } else {
-            player1.score -= Math.abs(player1.currentRoundWins - player1.bet);
+            const penalty = Math.abs(player1.currentRoundWins - player1.bet);
+            player1.score -= penalty;
         }
         if (player2.currentRoundWins === player2.bet) {
             player2.score += (10 + player2.bet);
         } else {
-            player2.score -= Math.abs(player2.currentRoundWins - player2.bet);
+            const penalty = Math.abs(player2.currentRoundWins - player2.bet);
+            player2.score -= penalty;
         }
 
-        // ⚠️ Ora determina e salva il vincitore del ROUND per il prossimo round
-        if (player1.currentRoundWins > player2.currentRoundWins) {
-            game.lastRoundWinner = player1Id;
-        } else if (player2.currentRoundWins > player1.currentRoundWins) {
-            game.lastRoundWinner = player2Id;
-        } else {
-            game.lastRoundWinner = null; // O un default, se il round finisce in parità
-        }
+        //  Assegna il vincitore del round in base a chi ha vinto l'ultima mano
+        game.lastRoundWinner = handWinnerId;
 
         // 5. Notifica entrambi i giocatori che il round è finito e i punteggi finali
-        // *** Due emissioni separate per inviare la carta dell'avversario ***
         io.to(player1Id).emit("roundFinished", {
-            player1Score: player1.score, // Punteggio finale del giocatore 1
-            player2Score: player2.score, // Punteggio finale del giocatore 2
+            player1Score: player1.score,
+            player2Score: player2.score,
             player1Wins: player1.currentRoundWins,
             player2Wins: player2.currentRoundWins,
             player1Id: player1Id,
@@ -627,8 +621,8 @@ function compareCards(c1, c2) {
         });
 
         io.to(player2Id).emit("roundFinished", {
-            player1Score: player1.score, // Punteggio finale del giocatore 1
-            player2Score: player2.score, // Punteggio finale del giocatore 2
+            player1Score: player1.score,
+            player2Score: player2.score,
             player1Wins: player1.currentRoundWins,
             player2Wins: player2.currentRoundWins,
             player1Id: player1Id,
@@ -666,9 +660,8 @@ function compareCards(c1, c2) {
 
     } else {
         // Round NON terminato, si passa alla prossima mano
-        // `game.firstToReveal` è già impostato correttamente sul vincitore della mano corrente
+        game.firstToReveal = handWinnerId;
 
-        // *** Due emissioni separate per inviare la carta dell'avversario ***
         io.to(player1Id).emit("nextHand", {
             firstToReveal: game.firstToReveal,
             player1Wins: player1.currentRoundWins,
@@ -733,7 +726,6 @@ socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
         return;
     }
 
-    // QUESTO È IL CONTROLLO CHE GENERA L'ERRORE
     if (game.firstToReveal !== currentPlayerId) {
         socket.emit("gameError", "Non è il tuo turno di giocare!");
         console.warn(`[SERVER] Giocatore ${currentPlayerId} ha tentato di giocare fuori turno. Turno corrente: ${game.firstToReveal}`);
@@ -863,6 +855,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
