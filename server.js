@@ -316,7 +316,7 @@ io.on("connection", (socket) => {
             await onlinePlayersCollection.updateOne({ socketId: otherPlayer.socketId }, { $set: { isInGame: true } });
 
             // 🔔 Notifica entrambi i giocatori + invia socketId creatore (MODIFICA: usa "gameReady")
-            io.to(roomCode).emit("gameReady", {
+            io.to(roomCode).emit("allPlayersReady", {
                 opponent1: opponentName,
                 opponent2: name,
                 creatorSocketId: otherPlayer.socketId,
@@ -863,6 +863,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
