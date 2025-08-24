@@ -416,59 +416,80 @@ io.on("connection", (socket) => {
   });
 
   // --- Creazione/Unione Stanza ---
-  socket.on("createRoom", async ({ name }, callback) => {
-    const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-    try {
-      await matchesCollection.insertOne({
-        roomCode,
-        players: [{ socketId: socket.id, name }],
-        createdAt: new Date()
-      });
-      socket.join(roomCode);
-      socket.data.name = name;
-      socket.data.roomCode = roomCode;
-      socket.data.isInGame = true;
-      await onlinePlayersCollection.updateOne({ socketId: socket.id }, { $set: { isInGame: true } });
-      console.log(`🛠️ Stanza creata: ${roomCode} da ${name}. isInGame: true.`);
-      callback({ success: true, roomCode });
-    } catch (err) {
-      console.error("❌ Errore creazione stanza:", err);
-      socket.emit("gameError", "Errore durante la creazione della stanza.");
-      callback({ success: false, error: "Errore creazione stanza" });
-    }
-  });
 
-  socket.on("joinRoom", async ({ name, roomCode }, callback) => {
-    const match = await matchesCollection.findOne({ roomCode });
-    if (!match) return callback({ success: false, error: "Stanza non trovata" });
-    if (match.players.length >= 2) return callback({ success: false, error: "Stanza piena" });
-    try {
-      await matchesCollection.updateOne(
-        { roomCode },
-        { $push: { players: { socketId: socket.id, name } } }
-      );
-      socket.join(roomCode);
-      socket.data.name = name;
-      socket.data.roomCode = roomCode;
-      socket.data.isInGame = true;
-      await onlinePlayersCollection.updateOne({ socketId: socket.id }, { $set: { isInGame: true } });
-      const otherPlayer = match.players[0];
-      const opponentName = otherPlayer.name;
-      await onlinePlayersCollection.updateOne({ socketId: otherPlayer.socketId }, { $set: { isInGame: true } });
-      io.to(roomCode).emit("allPlayersReady", {
-        opponent1: opponentName,
-        opponent2: name,
-        creatorSocketId: otherPlayer.socketId,
-        roomCode: roomCode
-      });
-      console.log(`👥 ${name} si è unito alla stanza ${roomCode} con ${opponentName}. isInGame: true.`);
-      callback({ success: true });
-    } catch (err) {
-      console.error("❌ Errore unione stanza:", err);
-      socket.emit("gameError", "Errore durante l'unione alla stanza.");
-      callback({ success: false, error: "Errore unione stanza" });
-    }
-  });
+// --- Creazione Stanza ---
+socket.on("createRoom", async ({ name, roomSize }, callback) => {
+  const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+  try {
+    await matchesCollection.insertOne({
+      roomCode,
+      players: [{ socketId: socket.id, name }],
+      roomSize, // Salva la dimensione della stanza
+      createdAt: new Date()
+    });
+    socket.join(roomCode);
+    socket.data.name = name;
+    socket.data.roomCode = roomCode;
+    socket.data.isInGame = true;
+    await onlinePlayersCollection.updateOne({ socketId: socket.id }, { $set: { isInGame: true } });
+    console.log(`🛠️ Stanza creata: ${roomCode} da ${name}. Richiesti ${roomSize} giocatori. isInGame: true.`);
+    callback({ success: true, roomCode });
+  } catch (err) {
+    console.error("❌ Errore creazione stanza:", err);
+    socket.emit("gameError", "Errore durante la creazione della stanza.");
+    callback({ success: false, error: "Errore creazione stanza" });
+  }
+});
+
+// --- Unione Stanza ---
+socket.on("joinRoom", async ({ name, roomCode }, callback) => {
+  const match = await matchesCollection.findOne({ roomCode });
+  if (!match) return callback({ success: false, error: "Stanza non trovata" });
+  if (match.players.length >= match.roomSize) return callback({ success: false, error: "Stanza piena" });
+  try {
+    await matchesCollection.updateOne(
+      { roomCode },
+      { $push: { players: { socketId: socket.id, name } } }
+    );
+    socket.join(roomCode);
+    socket.data.name = name;
+    socket.data.roomCode = roomCode;
+    socket.data.isInGame = true;
+    await onlinePlayersCollection.updateOne({ socketId: socket.id }, { $set: { isInGame: true } });
+    console.log(`👥 ${name} si è unito alla stanza ${roomCode}. isInGame: true.`);
+
+    const updatedMatch = await matchesCollection.findOne({ roomCode });
+
+    // Emette l'evento per aggiornare tutti i giocatori nella stanza
+    io.to(roomCode).emit("playerJoined", {
+      playersInRoom: updatedMatch.players.length,
+      roomSize: updatedMatch.roomSize,
+      playerName: name
+    });
+    
+    // Controlla se la stanza ha raggiunto la dimensione richiesta
+    if (updatedMatch.players.length === updatedMatch.roomSize) {
+      // Aggiorna lo stato di tutti i giocatori come in-game
+      await onlinePlayersCollection.updateMany(
+        { socketId: { $in: updatedMatch.players.map(p => p.socketId) } },
+        { $set: { isInGame: true } }
+      );
+      // Avvia il gioco inviando il comando a tutti
+      io.to(roomCode).emit("allPlayersReady", {
+        players: updatedMatch.players,
+        roomCode: roomCode
+      });
+      console.log(`🎉 Stanza ${roomCode} piena con ${updatedMatch.roomSize} giocatori. Partita avviata!`);
+    }
+    
+    // Invia la risposta al solo giocatore che si è unito
+    callback({ success: true, playersInRoom: updatedMatch.players.length, roomSize: updatedMatch.roomSize });
+  } catch (err) {
+    console.error("❌ Errore unione stanza:", err);
+    socket.emit("gameError", "Errore durante l'unione alla stanza.");
+    callback({ success: false, error: "Errore unione stanza" });
+  }
+});
 
   // --- Logica di Gioco ---
   socket.on("startRoundRequest", async () => {
@@ -745,3 +766,4 @@ connectToDatabase().then(() => {
 }).catch(err => {
   console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
