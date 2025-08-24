@@ -247,7 +247,6 @@ app.get("/online-players", async (req, res) => {
 // =========================================================
 //  4. SOCKET.IO - GESTIONE CONNESSIONI E LOGICA DI GIOCO
 // =========================================================
-import { v4 as uuidv4 } from "uuid";
 
 io.on("connection", (socket) => {
   console.log("🟢 Connessione socket:", socket.id);
@@ -664,4 +663,5 @@ connectToDatabase().then(() => {
 }).catch(err => {
   console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
