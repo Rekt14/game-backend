@@ -13,6 +13,8 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
+const { v4: uuidv4 } = require("uuid");
+
 // Stato del gioco in memoria
 const gameStates = {};
 const pendingInvitations = {};
@@ -42,14 +44,16 @@ async function connectToDatabase() {
   console.log("✅ Connesso a MongoDB");
 }
 
-function findRoomBySocketId(socketId) {
+function findRoomByPlayerId(playerId) {
   for (const roomCode in gameStates) {
-    if (gameStates[roomCode].players.hasOwnProperty(socketId)) {
+    const room = gameStates[roomCode];
+    if (room.players.some(p => p.playerId === playerId)) {
       return roomCode;
     }
   }
   return null;
 }
+
 
 const valuePoints = {
   2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7,
@@ -243,177 +247,164 @@ app.get("/online-players", async (req, res) => {
 // =========================================================
 //  4. SOCKET.IO - GESTIONE CONNESSIONI E LOGICA DI GIOCO
 // =========================================================
+import { v4 as uuidv4 } from "uuid";
+
 io.on("connection", (socket) => {
   console.log("🟢 Connessione socket:", socket.id);
   let heartbeatInterval;
 
-  // --- Gestione della Riconnessione ---
-  if (disconnectionTimers[socket.id]) {
-    clearTimeout(disconnectionTimers[socket.id]);
-    delete disconnectionTimers[socket.id];
-    console.log(`[RECONNECT] Giocatore ${socket.id} riconnesso. Timer di disconnessione cancellato.`);
-    socket.emit("reconnected");
-  }
-
-  // --- Registrazione Giocatore ---
-  socket.on("registerPlayer", async (name) => {
-    const existingPlayer = await onlinePlayersCollection.findOne({ socketId: socket.id });
-    if (existingPlayer) {
-      console.log(`🧍 Giocatore ${name} (${socket.id}) già registrato. Aggiorno lo stato.`);
-      socket.data.name = name;
-      socket.data.isInGame = existingPlayer.isInGame;
-      return;
-    }
-    console.log(`🧍 Registrazione giocatore: ${name} (${socket.id})`);
+  // --- Registrazione Giocatore (con playerId per riconnessione) ---
+  socket.on("registerPlayer", async ({ name, playerId }) => {
     try {
-      await onlinePlayersCollection.insertOne({
-        socketId: socket.id,
-        name,
-        lastSeen: new Date(),
-        isInGame: false
-      });
-      socket.data.name = name;
-      socket.data.isInGame = false;
+      if (!playerId) {
+        // Nuovo giocatore → genero un playerId unico
+        playerId = uuidv4();
+      }
+
+      const existingPlayer = await onlinePlayersCollection.findOne({ playerId });
+
+      if (existingPlayer) {
+        console.log(`🧍 Giocatore ${name} (${playerId}) già registrato. Aggiorno socketId e stato.`);
+        await onlinePlayersCollection.updateOne(
+          { playerId },
+          {
+            $set: {
+              socketId: socket.id,
+              name,
+              lastSeen: new Date(),
+              isInGame: existingPlayer.isInGame
+            }
+          }
+        );
+        socket.data = {
+          name,
+          playerId,
+          isInGame: existingPlayer.isInGame
+        };
+      } else {
+        console.log(`🧍 Nuovo giocatore: ${name} (${playerId})`);
+        await onlinePlayersCollection.insertOne({
+          playerId,
+          socketId: socket.id,
+          name,
+          lastSeen: new Date(),
+          isInGame: false
+        });
+        socket.data = {
+          name,
+          playerId,
+          isInGame: false
+        };
+      }
+
+      // Heartbeat per aggiornare lastSeen ogni 10s
       heartbeatInterval = setInterval(async () => {
         await onlinePlayersCollection.updateOne(
-          { socketId: socket.id },
+          { playerId },
           { $set: { lastSeen: new Date() } }
         );
       }, 10000);
+
+      // Rispondo al client con playerId (fondamentale per riconnessione)
+      socket.emit("playerRegistered", { playerId });
+
     } catch (err) {
       console.error("❌ Errore registrazione giocatore:", err);
       socket.emit("gameError", "Errore durante la registrazione del giocatore.");
     }
   });
 
-  // --- Inviti ---
-  socket.on("sendInvitation", async ({ invitedSocketId }) => {
-    const inviterName = socket.data.name;
-    const inviterSocketId = socket.id;
+  // --- Disconnessione con timeout ---
+  socket.on("disconnect", async () => {
+    console.log("🔴 Disconnessione:", socket.id);
+    clearInterval(heartbeatInterval);
 
-    if (!inviterName) {
-      console.warn(`[SERVER] Invitante senza nome (socket: ${inviterSocketId}) ha tentato di inviare un invito.`);
-      socket.emit("gameError", "Errore: nome invitante non disponibile.");
-      return;
-    }
-    if (inviterSocketId === invitedSocketId) {
-      socket.emit("gameError", "Non puoi invitare te stesso!");
-      return;
-    }
-    const inviterData = await onlinePlayersCollection.findOne({ socketId: inviterSocketId });
-    const invitedData = await onlinePlayersCollection.findOne({ socketId: invitedSocketId });
-    if (!invitedData) {
-      socket.emit("gameError", "Il giocatore che hai invitato non è più online.");
-      return;
-    }
-    if (inviterData.isInGame || invitedData.isInGame) {
-      socket.emit("gameError", "Uno dei giocatori è già in partita.");
-      return;
-    }
+    const playerId = socket.data?.playerId;
+    if (!playerId) return;
 
-    if (pendingInvitations[inviterSocketId]) {
-      clearTimeout(pendingInvitations[inviterSocketId].timeoutId);
-      delete pendingInvitations[inviterSocketId];
-    }
-    const INVITE_TIMEOUT_MS = 60000;
-    const invitationTimeout = setTimeout(() => {
-      io.to(inviterSocketId).emit("invitationExpired", {
-        invitedName: invitedData.name
-      });
-      console.log(`⏳ Invito da ${inviterName} a ${invitedData.name} scaduto.`);
-      delete pendingInvitations[inviterSocketId];
-    }, INVITE_TIMEOUT_MS);
+    const roomCode = findRoomByPlayerId(playerId);
 
-    pendingInvitations[inviterSocketId] = {
-      invitedSocketId: invitedSocketId,
-      timeoutId: invitationTimeout,
-      invitedPlayerName: invitedData.name
-    };
-    console.log(`✉️ Invito inviato da ${inviterName} (${inviterSocketId}) a ${invitedData.name} (${invitedSocketId})`);
-    io.to(invitedSocketId).emit("receiveInvitation", {
-      inviterName: inviterName,
-      inviterSocketId: inviterSocketId,
-      timeout: INVITE_TIMEOUT_MS
-    });
-    socket.emit("invitationSent", { invitedName: invitedData.name });
+    if (roomCode) {
+      console.log(`[DISCONNECT] Avviato timer per playerId ${playerId} in stanza ${roomCode}`);
+
+      disconnectionTimers[playerId] = setTimeout(async () => {
+        try {
+          console.log(`[DISCONNECT] Timeout scaduto per ${playerId}. Rimozione definitiva.`);
+
+          await onlinePlayersCollection.deleteOne({ playerId });
+
+          const room = await matchesCollection.findOne({ roomCode });
+          if (room && room.players.length > 1) {
+            const otherPlayers = room.players.filter(p => p.playerId !== playerId);
+            otherPlayers.forEach(other => {
+              io.to(other.socketId).emit("opponentDisconnected", { roomCode });
+            });
+          }
+
+          await matchesCollection.updateOne(
+            { roomCode },
+            { $pull: { players: { playerId } } }
+          );
+
+          const updatedRoom = await matchesCollection.findOne({ roomCode });
+          if (!updatedRoom || updatedRoom.players.length === 0) {
+            await matchesCollection.deleteOne({ roomCode });
+            if (gameStates[roomCode]) delete gameStates[roomCode];
+            console.log(`🗑️ Stanza ${roomCode} eliminata (vuota)`);
+          }
+        } catch (err) {
+          console.error("❌ Errore rimozione stanza/giocatore su disconnessione:", err);
+        } finally {
+          delete disconnectionTimers[playerId];
+        }
+      }, DISCONNECTION_TIMEOUT);
+    } else {
+      try {
+        await onlinePlayersCollection.deleteOne({ playerId });
+      } catch (err) {
+        console.error("❌ Errore rimozione giocatore offline:", err);
+      }
+    }
   });
 
-  socket.on("acceptInvitation", async ({ inviterSocketId }) => {
-    if (pendingInvitations[inviterSocketId]) {
-      clearTimeout(pendingInvitations[inviterSocketId].timeoutId);
-      delete pendingInvitations[inviterSocketId];
-      console.log(`✅ Invito da ${inviterSocketId} accettato, timeout cancellato.`);
-    }
-
-    const invitedPlayerName = socket.data.name;
-    const invitedPlayerSocketId = socket.id;
-    const inviter = await onlinePlayersCollection.findOne({ socketId: inviterSocketId });
-
-    if (!inviter) {
-      socket.emit("gameError", "Il giocatore che ti ha invitato non è più online o ha annullato l'invito.");
-      return;
-    }
-    if (inviter.isInGame || socket.data.isInGame) {
-      socket.emit("gameError", "Uno dei giocatori è già in una partita.");
-      return;
-    }
-
-    const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+  // --- Riconnessione ---
+  socket.on("reconnectPlayer", async ({ playerId }) => {
     try {
-      await matchesCollection.insertOne({
-        roomCode,
-        players: [
-          { socketId: inviter.socketId, name: inviter.name },
-          { socketId: invitedPlayerSocketId, name: invitedPlayerName }
-        ],
-        createdAt: new Date()
-      });
-      const inviterSocket = io.sockets.sockets.get(inviter.socketId);
-      if (inviterSocket) {
-        inviterSocket.join(roomCode);
-        inviterSocket.data.roomCode = roomCode;
-        inviterSocket.data.name = inviter.name;
-        inviterSocket.data.isInGame = true;
-        await onlinePlayersCollection.updateOne({ socketId: inviter.socketId }, { $set: { isInGame: true } });
-        console.log(`🛠️ ${inviter.name} (invitante) unito a stanza ${roomCode}. isInGame: true.`);
-      } else {
-        console.error(`[SERVER ERROR] Socket invitante ${inviter.socketId} non trovata per unirsi alla stanza.`);
-        socket.emit("gameError", "Errore nell'unione alla stanza (invitante non trovato).");
+      const player = await onlinePlayersCollection.findOne({ playerId });
+      if (!player) {
+        socket.emit("gameError", "Player non trovato, registrati di nuovo.");
         return;
       }
-      socket.join(roomCode);
-      socket.data.roomCode = roomCode;
-      socket.data.name = invitedPlayerName;
-      socket.data.isInGame = true;
-      await onlinePlayersCollection.updateOne({ socketId: invitedPlayerSocketId }, { $set: { isInGame: true } });
-      console.log(`👥 ${invitedPlayerName} (invitato) unito a stanza ${roomCode}. isInGame: true.`);
-      io.to(roomCode).emit("gameReady", {
-        opponent1: inviter.name,
-        opponent2: invitedPlayerName,
-        creatorSocketId: inviter.socketId,
-        roomCode: roomCode
-      });
-      console.log(`🎉 Stanza ${roomCode} creata e giocatori ${inviter.name} e ${invitedPlayerName} uniti.`);
-    } catch (err) {
-      console.error("❌ Errore creazione/unione stanza su accettazione invito:", err);
-      socket.emit("gameError", "Errore durante l'accettazione dell'invito.");
-    }
-  });
 
-  socket.on("declineInvitation", async ({ inviterSocketId }) => {
-    if (pendingInvitations[inviterSocketId]) {
-      clearTimeout(pendingInvitations[inviterSocketId].timeoutId);
-      const invitedPlayerName = pendingInvitations[inviterSocketId].invitedPlayerName;
-      delete pendingInvitations[inviterSocketId];
-      console.log(`🚫 Invito da ${inviterSocketId} rifiutato, timeout cancellato.`);
-      io.to(inviterSocketId).emit("invitationDeclined", {
-        declinerName: invitedPlayerName
-      });
-      console.log(`🚫 Invito da ${inviterSocketId} rifiutato da ${invitedPlayerName}`);
-    } else {
-      console.log(`🚫 Invito rifiutato da ${socket.id}, ma invito originale non trovato (invitante ${inviterSocketId}).`);
+      await onlinePlayersCollection.updateOne(
+        { playerId },
+        { $set: { socketId: socket.id, lastSeen: new Date() } }
+      );
+
+      socket.data = {
+        playerId,
+        name: player.name,
+        isInGame: player.isInGame
+      };
+
+      const roomCode = findRoomByPlayerId(playerId);
+      if (roomCode) {
+        socket.join(roomCode);
+
+        if (disconnectionTimers[playerId]) {
+          clearTimeout(disconnectionTimers[playerId]);
+          delete disconnectionTimers[playerId];
+        }
+
+        socket.emit("reconnected", { state: gameStates[roomCode], roomCode });
+        console.log(`🔄 Player ${playerId} riconnesso in stanza ${roomCode}`);
+      }
+    } catch (err) {
+      console.error("❌ Errore in reconnectPlayer:", err);
+      socket.emit("gameError", "Errore durante la riconnessione.");
     }
   });
+});
 
   // --- Creazione/Unione Stanza ---
   socket.on("createRoom", async ({ name }, callback) => {
@@ -662,78 +653,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // --- Gestione Disconnessione (con timeout) ---
-  socket.on("disconnect", async () => {
-    console.log("🔴 Disconnessione:", socket.id);
-    clearInterval(heartbeatInterval);
-
-    // Gestione degli inviti in sospeso
-    if (pendingInvitations[socket.id]) {
-      clearTimeout(pendingInvitations[socket.id].timeoutId);
-      delete pendingInvitations[socket.id];
-    }
-    for (const inviterId in pendingInvitations) {
-      if (pendingInvitations[inviterId].invitedSocketId === socket.id) {
-        clearTimeout(pendingInvitations[inviterId].timeoutId);
-        io.to(inviterId).emit("invitationExpired", {
-          invitedName: pendingInvitations[inviterId].invitedPlayerName
-        });
-        delete pendingInvitations[inviterId];
-      }
-    }
-
-    const roomCode = findRoomBySocketId(socket.id);
-    if (roomCode) {
-      console.log(`[DISCONNECT] Avviato timer di disconnessione per il giocatore ${socket.id} nella stanza ${roomCode}.`);
-      disconnectionTimers[socket.id] = setTimeout(async () => {
-        try {
-          console.log(`[DISCONNECT] Timeout scaduto per ${socket.id}. Procedo con la rimozione.`);
-          const playerInDb = await onlinePlayersCollection.findOne({ socketId: socket.id });
-          if (playerInDb) {
-            await onlinePlayersCollection.updateOne({ socketId: socket.id }, { $set: { isInGame: false } });
-            await onlinePlayersCollection.deleteOne({ socketId: socket.id });
-          }
-
-          const room = await matchesCollection.findOne({ roomCode });
-          if (room && room.players.length > 1) {
-            const otherPlayer = room.players.find(p => p.socketId !== socket.id);
-            if (otherPlayer) {
-              await onlinePlayersCollection.updateOne({ socketId: otherPlayer.socketId }, { $set: { isInGame: false } });
-              io.to(otherPlayer.socketId).emit("opponentDisconnected", { roomCode });
-              console.log(`📢 Avversario ${otherPlayer.name} notificato della disconnessione di ${socket.data?.name || socket.id}.`);
-            }
-          }
-          await matchesCollection.updateOne({ roomCode }, { $pull: { players: { socketId: socket.id } } });
-          const updatedRoom = await matchesCollection.findOne({ roomCode });
-          if (!updatedRoom || updatedRoom.players.length === 0) {
-            await matchesCollection.deleteOne({ roomCode });
-            console.log(`🗑️ Stanza ${roomCode} eliminata (vuota)`);
-            if (gameStates[roomCode]) {
-              delete gameStates[roomCode];
-              console.log(`🗑️ Stato del gioco per stanza ${roomCode} eliminato.`);
-            }
-          }
-        } catch (err) {
-          console.error("❌ Errore rimozione stanza/giocatore su disconnessione:", err);
-        } finally {
-          delete disconnectionTimers[socket.id];
-        }
-      }, DISCONNECTION_TIMEOUT);
-    } else {
-      // Se non era in una stanza, esegui la rimozione immediata
-      try {
-        const playerInDb = await onlinePlayersCollection.findOne({ socketId: socket.id });
-        if (playerInDb) {
-          await onlinePlayersCollection.updateOne({ socketId: socket.id }, { $set: { isInGame: false } });
-          await onlinePlayersCollection.deleteOne({ socketId: socket.id });
-        }
-      } catch (err) {
-        console.error("❌ Errore rimozione giocatore offline:", err);
-      }
-    }
-  });
-});
-
 // =========================================================
 //  5. AVVIO SERVER
 // =========================================================
@@ -745,3 +664,4 @@ connectToDatabase().then(() => {
 }).catch(err => {
   console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
