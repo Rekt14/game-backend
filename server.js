@@ -338,67 +338,73 @@ io.on("connection", (socket) => {
     socket.emit("invitationSent", { invitedName: invitedData.name });
   });
 
-  socket.on("acceptInvitation", async ({ inviterSocketId }) => {
-    if (pendingInvitations[inviterSocketId]) {
-      clearTimeout(pendingInvitations[inviterSocketId].timeoutId);
-      delete pendingInvitations[inviterSocketId];
-      console.log(`✅ Invito da ${inviterSocketId} accettato, timeout cancellato.`);
-    }
+  // Accettazione invito
+socket.on("acceptInvitation", async ({ inviterSocketId }) => {
+    if (pendingInvitations[inviterSocketId]) {
+      clearTimeout(pendingInvitations[inviterSocketId].timeoutId);
+      delete pendingInvitations[inviterSocketId];
+      console.log(`✅ Invito da ${inviterSocketId} accettato, timeout cancellato.`);
+    }
 
-    const invitedPlayerName = socket.data.name;
-    const invitedPlayerSocketId = socket.id;
-    const inviter = await onlinePlayersCollection.findOne({ socketId: inviterSocketId });
+    const invitedPlayerName = socket.data.name;
+    const invitedPlayerSocketId = socket.id;
+    const inviter = await onlinePlayersCollection.findOne({ socketId: inviterSocketId });
 
-    if (!inviter) {
-      socket.emit("gameError", "Il giocatore che ti ha invitato non è più online o ha annullato l'invito.");
-      return;
-    }
-    if (inviter.isInGame || socket.data.isInGame) {
-      socket.emit("gameError", "Uno dei giocatori è già in una partita.");
-      return;
-    }
+    if (!inviter) {
+      socket.emit("gameError", "Il giocatore che ti ha invitato non è più online o ha annullato l'invito.");
+      return;
+    }
+    if (inviter.isInGame || socket.data.isInGame) {
+      socket.emit("gameError", "Uno dei giocatori è già in una partita.");
+      return;
+    }
 
-    const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
-    try {
-      await matchesCollection.insertOne({
-        roomCode,
-        players: [
-          { socketId: inviter.socketId, name: inviter.name },
-          { socketId: invitedPlayerSocketId, name: invitedPlayerName }
-        ],
-        createdAt: new Date()
-      });
-      const inviterSocket = io.sockets.sockets.get(inviter.socketId);
-      if (inviterSocket) {
-        inviterSocket.join(roomCode);
-        inviterSocket.data.roomCode = roomCode;
-        inviterSocket.data.name = inviter.name;
-        inviterSocket.data.isInGame = true;
-        await onlinePlayersCollection.updateOne({ socketId: inviter.socketId }, { $set: { isInGame: true } });
-        console.log(`🛠️ ${inviter.name} (invitante) unito a stanza ${roomCode}. isInGame: true.`);
-      } else {
-        console.error(`[SERVER ERROR] Socket invitante ${inviter.socketId} non trovata per unirsi alla stanza.`);
-        socket.emit("gameError", "Errore nell'unione alla stanza (invitante non trovato).");
-        return;
-      }
-      socket.join(roomCode);
-      socket.data.roomCode = roomCode;
-      socket.data.name = invitedPlayerName;
-      socket.data.isInGame = true;
-      await onlinePlayersCollection.updateOne({ socketId: invitedPlayerSocketId }, { $set: { isInGame: true } });
-      console.log(`👥 ${invitedPlayerName} (invitato) unito a stanza ${roomCode}. isInGame: true.`);
-      io.to(roomCode).emit("gameReady", {
+    const roomCode = Math.floor(1000 + Math.random() * 9000).toString();
+    try {
+      await matchesCollection.insertOne({
+        roomCode,
+        players: [
+          { socketId: inviter.socketId, name: inviter.name },
+          { socketId: invitedPlayerSocketId, name: invitedPlayerName }
+        ],
+        roomSize: 2, // 👈🏼 Qui specifichi che è una partita a 2 giocatori
+        createdAt: new Date()
+      });
+      
+      const inviterSocket = io.sockets.sockets.get(inviter.socketId);
+      if (inviterSocket) {
+        inviterSocket.join(roomCode);
+        inviterSocket.data.roomCode = roomCode;
+        inviterSocket.data.name = inviter.name;
+        inviterSocket.data.isInGame = true;
+        await onlinePlayersCollection.updateOne({ socketId: inviter.socketId }, { $set: { isInGame: true } });
+        console.log(`🛠️ ${inviter.name} (invitante) unito a stanza ${roomCode}. isInGame: true.`);
+      } else {
+        console.error(`[SERVER ERROR] Socket invitante ${inviter.socketId} non trovata per unirsi alla stanza.`);
+        socket.emit("gameError", "Errore nell'unione alla stanza (invitante non trovato).");
+        return;
+      }
+      
+      socket.join(roomCode);
+      socket.data.roomCode = roomCode;
+      socket.data.name = invitedPlayerName;
+      socket.data.isInGame = true;
+      await onlinePlayersCollection.updateOne({ socketId: invitedPlayerSocketId }, { $set: { isInGame: true } });
+      console.log(`👥 ${invitedPlayerName} (invitato) unito a stanza ${roomCode}. isInGame: true.`);
+      
+ io.to(roomCode).emit("gameReady", {
         opponent1: inviter.name,
         opponent2: invitedPlayerName,
         creatorSocketId: inviter.socketId,
         roomCode: roomCode
       });
-      console.log(`🎉 Stanza ${roomCode} creata e giocatori ${inviter.name} e ${invitedPlayerName} uniti.`);
-    } catch (err) {
-      console.error("❌ Errore creazione/unione stanza su accettazione invito:", err);
-      socket.emit("gameError", "Errore durante l'accettazione dell'invito.");
-    }
-  });
+      
+      console.log(`🎉 Stanza ${roomCode} creata e giocatori ${inviter.name} e ${invitedPlayerName} uniti.`);
+    } catch (err) {
+      console.error("❌ Errore creazione/unione stanza su accettazione invito:", err);
+      socket.emit("gameError", "Errore durante l'accettazione dell'invito.");
+    }
+  });
 
   socket.on("declineInvitation", async ({ inviterSocketId }) => {
     if (pendingInvitations[inviterSocketId]) {
@@ -777,5 +783,6 @@ connectToDatabase().then(() => {
 }).catch(err => {
   console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
