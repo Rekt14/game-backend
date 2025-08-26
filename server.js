@@ -460,215 +460,111 @@ io.on("connection", (socket) => {
     //  5. LOGICA DI GIOCO (SPOSTATA)
     // =========================================================
 socket.on("startRoundRequest", async () => {
-
-        const roomCode = socket.data?.roomCode;
-
-        if (!roomCode) return;
-
-
-
-        let game = gameStates[roomCode];
-
-        if (!game) {
-
-            game = {
-
-                round: 0,
-
-                players: {},
-
-                nextRoundReadyCount: 0,
-
-                lastRoundWinner: null,
-
-            };
-
-            gameStates[roomCode] = game;
-
-        }
-
-
-
-        game.nextRoundReadyCount++;
-
-
-
-        const room = await matchesCollection.findOne({ roomCode });
-
-        if (!room) {
-
-            console.error(`[SERVER ERROR] Stanza ${roomCode} non trovata per avviare il round.`);
-
-            return;
-
-        }
-
-
-
-        if (game.nextRoundReadyCount === room.roomSize) {
-
-            game.nextRoundReadyCount = 0;
-
-            const round = game.round + 1;
-
-            const deck = createAndShuffleDeck();
-
-
-
-            let firstPlayerForThisRound;
-
-            if (game.lastRoundWinner) {
-
-                firstPlayerForThisRound = game.lastRoundWinner;
-
-            } else {
-
-                const randomIndex = Math.floor(Math.random() * room.players.length);
-
-                firstPlayerForThisRound = room.players[randomIndex].socketId;
-
-            }
-
-
-
-            game.round = round;
-
-            game.firstToReveal = firstPlayerForThisRound;
-
-            game.lastRoundWinner = null;
-
-
-
-            const playersInRoom = room.players;
-
-            const allHands = {};
-
-            for (const player of playersInRoom) {
-
-                const pCards = deck.splice(0, round);
-
-                pCards.forEach(card => card.played = false);
-
-
-
-                if (!game.players[player.socketId]) {
-
-                    game.players[player.socketId] = { name: player.name, score: 0 };
-
-                }
-
-                game.players[player.socketId].hand = pCards;
-
-                game.players[player.socketId].bet = "";
-
-                game.players[player.socketId].playedCard = null;
-
-                game.players[player.socketId].currentRoundWins = 0;
-
-                game.players[player.socketId].revealedCardsCount = 0;
-
-                allHands[player.socketId] = pCards;
-
-            }
-
-
-
-            const firstPlayerIndex = playersInRoom.findIndex(p => p.socketId === firstPlayerForThisRound);
-
-            let playOrder = [];
-
-            for (let i = 0; i < playersInRoom.length; i++) {
-
-                playOrder.push(playersInRoom[(firstPlayerIndex + i) % playersInRoom.length].socketId);
-
-            }
-
-
-
-            game.currentTurnIndex = 0;
-
-            game.playOrder = playOrder;
-
-
-
-            for (const player of playersInRoom) {
-
-                let dataToSend = {
-
-                    round,
-
-                    firstToReveal: firstPlayerForThisRound,
-
-                    players: playersInRoom,
-
-                    playOrder: playSequence,
-
-                    yourCards: allHands[player.socketId]
-
-                };
-
-
-
-                if (round === 1) {
-
-                    const opponentsCards = {};
-
-                    playersInRoom.filter(p => p.socketId !== player.socketId).forEach(opponent => {
-
-                        opponentsCards[opponent.socketId] = allHands[opponent.socketId];
-
-                    });
-
-                    dataToSend.opponentsCards = opponentsCards;
-
-                }
-
-                io.to(player.socketId).emit("startRoundData", dataToSend);
-
-            }
-
-            console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}. Inizia: ${firstPlayerForThisRound}`);
-
-        } else {
-
-            io.to(roomCode).emit("waitingForPlayersReady", {
-
-                playersReady: game.nextRoundReadyCount,
-
-                playersNeeded: room.roomSize
-
-            });
-
-        }
-
-
-
-        if (typeof matchesCollection !== 'undefined') {
-
-            try {
-
-                await matchesCollection.updateOne(
-
-                    { roomCode: roomCode },
-
-                    { $set: { gameState: game } }
-
-                );
-
-            } catch (error) {
-
-                console.error(`[SERVER ERROR] Errore salvando lo stato del gioco per la stanza ${roomCode}:`, error);
-
-            }
-
-        } else {
-
-            console.error("matchesCollection non inizializzata. Impossibile salvare lo stato.");
-
-        }
-
-    });
-
+    const roomCode = socket.data?.roomCode;
+    if (!roomCode) return;
+
+    let game = gameStates[roomCode];
+    if (!game) {
+        game = {
+            round: 0,
+            players: {},
+            nextRoundReadyCount: 0,
+            lastRoundWinner: null,
+        };
+        gameStates[roomCode] = game;
+    }
+
+    game.nextRoundReadyCount++;
+
+    const room = await matchesCollection.findOne({ roomCode });
+    if (!room) {
+        console.error(`[SERVER ERROR] Stanza ${roomCode} non trovata per avviare il round.`);
+        return;
+    }
+
+    if (game.nextRoundReadyCount === room.roomSize) {
+        game.nextRoundReadyCount = 0;
+        const round = game.round + 1;
+        const deck = createAndShuffleDeck();
+
+        let firstPlayerForThisRound;
+        if (game.lastRoundWinner) {
+            firstPlayerForThisRound = game.lastRoundWinner;
+        } else {
+            const randomIndex = Math.floor(Math.random() * room.players.length);
+            firstPlayerForThisRound = room.players[randomIndex].socketId;
+        }
+
+        game.round = round;
+        game.firstToReveal = firstPlayerForThisRound;
+        game.lastRoundWinner = null;
+
+        const playersInRoom = room.players;
+        const allHands = {};
+        for (const player of playersInRoom) {
+            const pCards = deck.splice(0, round);
+            pCards.forEach(card => card.played = false);
+
+            if (!game.players[player.socketId]) {
+                game.players[player.socketId] = { name: player.name, score: 0 };
+            }
+            game.players[player.socketId].hand = pCards;
+            game.players[player.socketId].bet = "";
+            game.players[player.socketId].playedCard = null;
+            game.players[player.socketId].currentRoundWins = 0;
+            game.players[player.socketId].revealedCardsCount = 0;
+            allHands[player.socketId] = pCards;
+        }
+
+        const firstPlayerIndex = playersInRoom.findIndex(p => p.socketId === firstPlayerForThisRound);
+        let playOrder = [];
+        for (let i = 0; i < playersInRoom.length; i++) {
+            playOrder.push(playersInRoom[(firstPlayerIndex + i) % playersInRoom.length].socketId);
+        }
+
+        game.currentTurnIndex = 0;
+        game.playOrder = playOrder;
+
+        for (const player of playersInRoom) {
+            let dataToSend = {
+                round,
+                firstToReveal: firstPlayerForThisRound,
+                players: playersInRoom,
+                playOrder: playOrder, // Corretto: utilizza 'playOrder' che è definito
+                yourCards: allHands[player.socketId]
+            };
+
+            if (round === 1) {
+                const opponentsCards = {};
+                playersInRoom.filter(p => p.socketId !== player.socketId).forEach(opponent => {
+                    opponentsCards[opponent.socketId] = allHands[opponent.socketId];
+                });
+                dataToSend.opponentsCards = opponentsCards;
+            }
+            io.to(player.socketId).emit("startRoundData", dataToSend);
+        }
+        console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}. Inizia: ${firstPlayerForThisRound}`);
+    } else {
+        io.to(roomCode).emit("waitingForPlayersReady", {
+            playersReady: game.nextRoundReadyCount,
+            playersNeeded: room.roomSize
+        });
+    }
+
+    if (typeof matchesCollection !== 'undefined') {
+        try {
+            await matchesCollection.updateOne(
+                { roomCode: roomCode },
+                { $set: { gameState: game } }
+            );
+        } catch (error) {
+            console.error(`[SERVER ERROR] Errore salvando lo stato del gioco per la stanza ${roomCode}:`, error);
+        }
+    } else {
+        console.error("matchesCollection non inizializzata. Impossibile salvare lo stato.");
+    }
+});
+    
     // Gestione scommessa giocatore
 socket.on("playerBet", async ({ roomCode, bet }) => {
     const game = gameStates[roomCode];
@@ -865,6 +761,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
