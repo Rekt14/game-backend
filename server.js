@@ -566,7 +566,7 @@ io.on("connection", (socket) => {
     });
 
     // Gestione scommessa giocatore
- socket.on("playerBet", async ({ roomCode, bet }) => {
+socket.on("playerBet", async ({ roomCode, bet }) => {
     const game = gameStates[roomCode];
     if (!game || !game.players[socket.id]) {
         return;
@@ -580,34 +580,32 @@ io.on("connection", (socket) => {
     }
     const playersWithBets = match.players.filter(p => game.players[p.socketId]?.bet !== "");
 
+    // Genera l'array con le scommesse aggiornate di tutti i giocatori
+    const updatedPlayersWithBets = match.players.map(p => ({
+        id: p.socketId,
+        name: game.players[p.socketId]?.name,
+        bet: game.players[p.socketId]?.bet
+    }));
+
     if (playersWithBets.length === match.roomSize) {
+        // Se tutte le scommesse sono piazzate, invia l'evento finale
         const playOrder = Object.keys(game.players).sort(() => Math.random() - 0.5);
         game.playOrder = playOrder;
         game.currentTurnIndex = 0;
         
         io.to(roomCode).emit("allBetsPlaced", {
-            players: match.players.map(p => ({
-                id: p.socketId,
-                name: p.name,
-                bet: game.players[p.socketId].bet
-            })),
+            players: updatedPlayersWithBets,
             playOrder: game.playOrder,
             currentTurnIndex: game.currentTurnIndex,
         });
 
         console.log(`✅ Tutte le scommesse piazzate nella stanza ${roomCode}. Inizio gioco carte.`);
     } else {
-        // Invia lo stato aggiornato delle scommesse a tutti i client
-        const updatedPlayers = match.players.map(p => ({
-            id: p.socketId,
-            bet: game.players[p.socketId].bet
-        }));
-
-        const currentBetters = playersWithBets.length;
-        const nextPlayerId = game.playOrder[currentBetters];
+        // Altrimenti, invia un aggiornamento parziale
+        const nextPlayerId = game.playOrder[playersWithBets.length];
 
         io.to(roomCode).emit("playerBetPlaced", {
-            updatedPlayers: updatedPlayers,
+            updatedPlayers: updatedPlayersWithBets,
             nextPlayerId: nextPlayerId
         });
 
@@ -763,6 +761,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
