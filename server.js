@@ -566,7 +566,7 @@ io.on("connection", (socket) => {
     });
 
     // Gestione scommessa giocatore
-   socket.on("playerBet", async ({ roomCode, bet }) => {
+  socket.on("playerBet", async ({ roomCode, bet }) => {
     const game = gameStates[roomCode];
     if (!game || !game.players[socket.id]) {
         return;
@@ -574,30 +574,36 @@ io.on("connection", (socket) => {
 
     game.players[socket.id].bet = bet;
 
-    // Aggiungi una logica per gestire il turno sul server
-    const match = await matchesCollection.findOne({ roomCode });
-    if (!match) return;
-
-    // Trova l'indice del giocatore attuale nell'ordine di gioco
-    const currentPlayerIndex = game.playOrder.indexOf(socket.id);
-    game.currentTurnIndex = (currentPlayerIndex + 1) % game.playOrder.length;
-    const nextPlayerId = game.playOrder[game.currentTurnIndex];
-
+    // Invia l'evento per notificare a tutti che una scommessa è stata piazzata
     io.to(roomCode).emit("playerBetPlaced", {
         playerId: socket.id,
-        bet: bet,
-        nextPlayerId: nextPlayerId
+        bet: bet
     });
 
+    // Controlla se tutti i giocatori hanno scommesso
+    const match = await matchesCollection.findOne({ roomCode });
+    if (!match) {
+        return;
+    }
     const playersWithBets = match.players.filter(p => game.players[p.socketId]?.bet !== "");
+
     if (playersWithBets.length === match.roomSize) {
+        // Genera l'ordine di gioco casuale e lo salva sullo stato del gioco
+        const playOrder = Object.keys(game.players).sort(() => Math.random() - 0.5);
+        game.playOrder = playOrder;
+        game.currentTurnIndex = 0; // Imposta il turno iniziale
+        
+        // Invia l'evento allBetsPlaced con l'ordine di gioco e l'indice del turno
         io.to(roomCode).emit("allBetsPlaced", {
             players: match.players.map(p => ({
                 id: p.socketId,
                 name: p.name,
                 bet: game.players[p.socketId].bet
-            }))
+            })),
+            playOrder: game.playOrder,
+            currentTurnIndex: game.currentTurnIndex,
         });
+
         console.log(`✅ Tutte le scommesse piazzate nella stanza ${roomCode}. Inizio gioco carte.`);
     }
 });
@@ -750,6 +756,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
