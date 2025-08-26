@@ -566,19 +566,13 @@ io.on("connection", (socket) => {
     });
 
     // Gestione scommessa giocatore
-  socket.on("playerBet", async ({ roomCode, bet }) => {
+ socket.on("playerBet", async ({ roomCode, bet }) => {
     const game = gameStates[roomCode];
     if (!game || !game.players[socket.id]) {
         return;
     }
 
     game.players[socket.id].bet = bet;
-
-    // Invia l'evento per notificare a tutti che una scommessa è stata piazzata
-    io.to(roomCode).emit("playerBetPlaced", {
-        playerId: socket.id,
-        bet: bet
-    });
 
     // Controlla se tutti i giocatori hanno scommesso
     const match = await matchesCollection.findOne({ roomCode });
@@ -588,12 +582,11 @@ io.on("connection", (socket) => {
     const playersWithBets = match.players.filter(p => game.players[p.socketId]?.bet !== "");
 
     if (playersWithBets.length === match.roomSize) {
-        // Genera l'ordine di gioco casuale e lo salva sullo stato del gioco
+        // Logica per quando tutte le scommesse sono state piazzate
         const playOrder = Object.keys(game.players).sort(() => Math.random() - 0.5);
         game.playOrder = playOrder;
-        game.currentTurnIndex = 0; // Imposta il turno iniziale
+        game.currentTurnIndex = 0;
         
-        // Invia l'evento allBetsPlaced con l'ordine di gioco e l'indice del turno
         io.to(roomCode).emit("allBetsPlaced", {
             players: match.players.map(p => ({
                 id: p.socketId,
@@ -605,6 +598,18 @@ io.on("connection", (socket) => {
         });
 
         console.log(`✅ Tutte le scommesse piazzate nella stanza ${roomCode}. Inizio gioco carte.`);
+    } else {
+        // Logica per gestire il turno di scommessa successivo
+        const currentBetters = playersWithBets.length;
+        const nextPlayerId = game.playOrder[currentBetters]; // Basati sul numero di scommesse piazzate
+
+        io.to(roomCode).emit("playerBetPlaced", {
+            playerId: socket.id,
+            bet: bet,
+            nextPlayerId: nextPlayerId
+        });
+
+        console.log(`➡️  Scommessa piazzata da ${game.players[socket.id].name}. Prossimo a scommettere: ${game.players[nextPlayerId].name}`);
     }
 });
 
@@ -756,6 +761,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
