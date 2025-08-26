@@ -574,7 +574,6 @@ io.on("connection", (socket) => {
 
     game.players[socket.id].bet = bet;
 
-    // Controlla se tutti i giocatori hanno scommesso
     const match = await matchesCollection.findOne({ roomCode });
     if (!match) {
         return;
@@ -582,7 +581,6 @@ io.on("connection", (socket) => {
     const playersWithBets = match.players.filter(p => game.players[p.socketId]?.bet !== "");
 
     if (playersWithBets.length === match.roomSize) {
-        // Logica per quando tutte le scommesse sono state piazzate
         const playOrder = Object.keys(game.players).sort(() => Math.random() - 0.5);
         game.playOrder = playOrder;
         game.currentTurnIndex = 0;
@@ -599,17 +597,21 @@ io.on("connection", (socket) => {
 
         console.log(`✅ Tutte le scommesse piazzate nella stanza ${roomCode}. Inizio gioco carte.`);
     } else {
-        // Logica per gestire il turno di scommessa successivo
+        // Invia lo stato aggiornato delle scommesse a tutti i client
+        const updatedPlayers = match.players.map(p => ({
+            id: p.socketId,
+            bet: game.players[p.socketId].bet
+        }));
+
         const currentBetters = playersWithBets.length;
-        const nextPlayerId = game.playOrder[currentBetters]; // Basati sul numero di scommesse piazzate
+        const nextPlayerId = game.playOrder[currentBetters];
 
         io.to(roomCode).emit("playerBetPlaced", {
-            playerId: socket.id,
-            bet: bet,
+            updatedPlayers: updatedPlayers,
             nextPlayerId: nextPlayerId
         });
 
-        console.log(`➡️  Scommessa piazzata da ${game.players[socket.id].name}. Prossimo a scommettere: ${game.players[nextPlayerId].name}`);
+        console.log(`➡️ Scommessa piazzata da ${game.players[socket.id].name}. Prossimo a scommettere: ${game.players[nextPlayerId].name}`);
     }
 });
 
@@ -761,6 +763,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
