@@ -566,36 +566,41 @@ io.on("connection", (socket) => {
     });
 
     // Gestione scommessa giocatore
-    socket.on("playerBet", async ({ roomCode, bet }) => {
-        const game = gameStates[roomCode];
-        if (!game || !game.players[socket.id]) {
-            return;
-        }
+   socket.on("playerBet", async ({ roomCode, bet }) => {
+    const game = gameStates[roomCode];
+    if (!game || !game.players[socket.id]) {
+        return;
+    }
 
-        game.players[socket.id].bet = bet;
+    game.players[socket.id].bet = bet;
 
-        const match = await matchesCollection.findOne({ roomCode });
-        if (!match) {
-            return;
-        }
+    // Aggiungi una logica per gestire il turno sul server
+    const match = await matchesCollection.findOne({ roomCode });
+    if (!match) return;
 
-        io.to(roomCode).emit("playerBetPlaced", {
-            playerId: socket.id,
-            bet: bet
-        });
+    // Trova l'indice del giocatore attuale nell'ordine di gioco
+    const currentPlayerIndex = game.playOrder.indexOf(socket.id);
+    game.currentTurnIndex = (currentPlayerIndex + 1) % game.playOrder.length;
+    const nextPlayerId = game.playOrder[game.currentTurnIndex];
 
-        const playersWithBets = match.players.filter(p => game.players[p.socketId]?.bet !== "");
-        if (playersWithBets.length === match.roomSize) {
-            io.to(roomCode).emit("allBetsPlaced", {
-                players: match.players.map(p => ({
-                    id: p.socketId,
-                    name: p.name,
-                    bet: game.players[p.socketId].bet
-                }))
-            });
-            console.log(`✅ Tutte le scommesse piazzate nella stanza ${roomCode}. Inizio gioco carte.`);
-        }
+    io.to(roomCode).emit("playerBetPlaced", {
+        playerId: socket.id,
+        bet: bet,
+        nextPlayerId: nextPlayerId
     });
+
+    const playersWithBets = match.players.filter(p => game.players[p.socketId]?.bet !== "");
+    if (playersWithBets.length === match.roomSize) {
+        io.to(roomCode).emit("allBetsPlaced", {
+            players: match.players.map(p => ({
+                id: p.socketId,
+                name: p.name,
+                bet: game.players[p.socketId].bet
+            }))
+        });
+        console.log(`✅ Tutte le scommesse piazzate nella stanza ${roomCode}. Inizio gioco carte.`);
+    }
+});
 
     // =========================================================
     //  6. LOGICA GESTIONE CARTE AVVERSARI (SPOSTATA)
@@ -745,5 +750,6 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
