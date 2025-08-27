@@ -108,8 +108,13 @@ async function processPlayedCards(roomCode, io) {
         card: p.playedCard,
         cardIndex: p.playedCardIndex
     }));
+    
+    const wins = Object.values(game.players).reduce((acc, p) => {
+        acc[p.socketId] = p.currentRoundWins;
+        return acc;
+    }, {});
 
-  io.to(roomCode).emit("handResult", {
+    io.to(roomCode).emit("handResult", {
         winnerId: handWinnerId,
         playedCards: playedCards,
         wins: wins,
@@ -124,7 +129,6 @@ async function processPlayedCards(roomCode, io) {
     const firstPlayerInRoom = game.players[Object.keys(game.players)[0]];
     if (firstPlayerInRoom.hand.every(card => card.played)) {
         const scores = {};
-        const wins = {};
         const bets = {};
 
         Object.values(game.players).forEach(p => {
@@ -135,7 +139,6 @@ async function processPlayedCards(roomCode, io) {
                 p.score -= penalty;
             }
             scores[p.socketId] = p.score;
-            wins[p.socketId] = p.currentRoundWins;
             bets[p.socketId] = p.bet;
         });
 
@@ -156,7 +159,7 @@ async function processPlayedCards(roomCode, io) {
             p.currentRoundWins = 0;
             p.revealedCardsCount = 0;
         });
-
+        
         if (game.round >= 10) {
             io.to(roomCode).emit("gameOver", { finalScores: scores });
             delete gameStates[roomCode];
@@ -164,10 +167,7 @@ async function processPlayedCards(roomCode, io) {
     } else {
         io.to(roomCode).emit("nextHand", {
             firstToReveal: game.firstToReveal,
-            wins: Object.values(game.players).reduce((acc, p) => {
-                acc[p.socketId] = p.currentRoundWins;
-                return acc;
-            }, {}),
+            wins: wins,
             playedCards: playedCards
         });
     }
@@ -756,6 +756,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
