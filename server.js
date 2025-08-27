@@ -113,21 +113,18 @@ async function processPlayedCards(roomCode, io) {
         acc[p.socketId] = p.currentRoundWins;
         return acc;
     }, {});
-
-    io.to(roomCode).emit("handResult", {
-        winnerId: handWinnerId,
-        playedCards: playedCards,
-        wins: wins,
-        firstToReveal: game.firstToReveal
-    });
-
+    
+    // Rimuove le carte giocate dalla mano dei giocatori
     playersPlayedThisHand.forEach(p => {
+        p.hand = p.hand.filter(card => !card.played);
         p.playedCard = null;
         p.playedCardIndex = null;
     });
 
-    const firstPlayerInRoom = game.players[Object.keys(game.players)[0]];
-    if (firstPlayerInRoom.hand.every(card => card.played)) {
+    const allHandsEmpty = Object.values(game.players).every(p => p.hand.length === 0);
+
+    if (allHandsEmpty) {
+        // Logica per la fine del round
         const scores = {};
         const bets = {};
 
@@ -154,10 +151,11 @@ async function processPlayedCards(roomCode, io) {
             playedCards: playedCards
         });
 
+        // Resetta le variabili per il round successivo
         Object.values(game.players).forEach(p => {
             p.bet = "";
             p.currentRoundWins = 0;
-            p.revealedCardsCount = 0;
+            // 'revealedCardsCount' non è più necessario
         });
         
         if (game.round >= 10) {
@@ -165,6 +163,7 @@ async function processPlayedCards(roomCode, io) {
             delete gameStates[roomCode];
         }
     } else {
+        // Logica per la fine della mano ma non del round
         io.to(roomCode).emit("nextHand", {
             firstToReveal: game.firstToReveal,
             wins: wins,
@@ -746,6 +745,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
