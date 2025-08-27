@@ -17,7 +17,7 @@ const io = new Server(server, {
 const gameStates = {};
 const pendingInvitations = {};
 const disconnectionTimers = {};
-const DISCONNECTION_TIMEOUT = 60000; // 60 secondi per la riconnessione
+const DISCONNECTION_TIMEOUT = 45000; // 60 secondi per la riconnessione
 
 // Setup del database
 const uri = process.env.MONGO_URI;
@@ -85,8 +85,6 @@ function compareCards(c1, c2) {
 async function processPlayedCards(roomCode, io) {
     let game = gameStates[roomCode];
     if (!game) return;
-
-     console.log(`[SERVER] Fine della mano. L'indice del turno è: ${game.currentTurnIndex}`);
 
     const playOrder = game.playOrder;
     const playersPlayedThisHand = playOrder.map(id => game.players[id]);
@@ -627,31 +625,11 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
     }
 
     const currentPlayerId = socket.id;
-
-       console.log(`[SERVER] Ricevuto playerCardPlayed da: ${currentPlayerId}`);
-    console.log(`[SERVER] Indice turno attuale: ${game.currentTurnIndex}`);
-    console.log(`[SERVER] ID del giocatore di turno secondo il server: ${game.playOrder[game.currentTurnIndex]}`);
-    console.log(`[SERVER] L'ID del giocatore che ha giocato è: ${currentPlayerId}`);
        
     const player = game.players[currentPlayerId];
     const playersInRoom = Object.keys(game.players);
 
     const cardInPlayerHand = player.hand[cardIndex];
-    if (!cardInPlayerHand || cardInPlayerHand.played) {
-        socket.emit("gameError", "Carta non valida o già giocata.");
-        return;
-    }
-
-    if (!game.playOrder || game.currentTurnIndex === undefined) {
-        socket.emit("gameError", "Errore di sincronizzazione del turno.");
-        return;
-    }
-
-    const currentTurnPlayerId = game.playOrder[game.currentTurnIndex];
-    if (currentTurnPlayerId !== currentPlayerId) {
-        socket.emit("gameError", "Non è il tuo turno di giocare!");
-        return;
-    }
 
     player.playedCard = card;
     player.playedCardIndex = cardIndex;
@@ -768,6 +746,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
