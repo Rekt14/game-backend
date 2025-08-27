@@ -620,12 +620,6 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
     // =========================================================
    socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
     let game = gameStates[roomCode];
-
-         console.log(`[SERVER] Ricevuto playerCardPlayed da: ${currentPlayerId}`);
-    console.log(`[SERVER] Indice turno attuale: ${game.currentTurnIndex}`);
-    console.log(`[SERVER] ID del giocatore di turno secondo il server: ${game.playOrder[game.currentTurnIndex]}`);
-    console.log(`[SERVER] L'ID del giocatore che ha giocato è: ${currentPlayerId}`);
-
     
     if (!game || !game.players[socket.id]) {
         console.warn(`[SERVER] Tentativo di giocare in stanza non valida o giocatore non trovato. Stanza: ${roomCode}, ID: ${socket.id}`);
@@ -633,6 +627,12 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
     }
 
     const currentPlayerId = socket.id;
+
+       console.log(`[SERVER] Ricevuto playerCardPlayed da: ${currentPlayerId}`);
+    console.log(`[SERVER] Indice turno attuale: ${game.currentTurnIndex}`);
+    console.log(`[SERVER] ID del giocatore di turno secondo il server: ${game.playOrder[game.currentTurnIndex]}`);
+    console.log(`[SERVER] L'ID del giocatore che ha giocato è: ${currentPlayerId}`);
+       
     const player = game.players[currentPlayerId];
     const playersInRoom = Object.keys(game.players);
 
@@ -768,6 +768,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
