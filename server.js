@@ -86,6 +86,8 @@ async function processPlayedCards(roomCode, io) {
     let game = gameStates[roomCode];
     if (!game) return;
 
+     console.log(`[SERVER] Fine della mano. L'indice del turno è: ${game.currentTurnIndex}`);
+
     const playOrder = game.playOrder;
     const playersPlayedThisHand = playOrder.map(id => game.players[id]);
 
@@ -618,6 +620,13 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
     // =========================================================
    socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
     let game = gameStates[roomCode];
+
+         console.log(`[SERVER] Ricevuto playerCardPlayed da: ${currentPlayerId}`);
+    console.log(`[SERVER] Indice turno attuale: ${game.currentTurnIndex}`);
+    console.log(`[SERVER] ID del giocatore di turno secondo il server: ${game.playOrder[game.currentTurnIndex]}`);
+    console.log(`[SERVER] L'ID del giocatore che ha giocato è: ${currentPlayerId}`);
+
+    
     if (!game || !game.players[socket.id]) {
         console.warn(`[SERVER] Tentativo di giocare in stanza non valida o giocatore non trovato. Stanza: ${roomCode}, ID: ${socket.id}`);
         return;
@@ -759,6 +768,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
