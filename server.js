@@ -654,10 +654,13 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
         cardIndex: cardIndex
     });
 
+          game.currentTurnIndex++;
+
+    // La logica di fine mano e inizio nuova mano è gestita qui
     if (game.currentTurnIndex === playersInRoom.length - 1) { // Usa length - 1 perché l'indice parte da 0
         console.log("Tutti i giocatori hanno giocato. Fine mano.");
         await processPlayedCards(roomCode, io);
-    } 
+    }
 
     if (typeof matchesCollection !== 'undefined') {
         try {
@@ -756,6 +759,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
