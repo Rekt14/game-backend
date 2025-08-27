@@ -616,67 +616,62 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
     // =========================================================
     //  6. LOGICA GESTIONE CARTE AVVERSARI (SPOSTATA)
     // =========================================================
-    socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
-        let game = gameStates[roomCode];
-        if (!game || !game.players[socket.id]) {
-            console.warn(`[SERVER] Tentativo di giocare in stanza non valida o giocatore non trovato. Stanza: ${roomCode}, ID: ${socket.id}`);
-            return;
-        }
+   socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
+    let game = gameStates[roomCode];
+    if (!game || !game.players[socket.id]) {
+        console.warn(`[SERVER] Tentativo di giocare in stanza non valida o giocatore non trovato. Stanza: ${roomCode}, ID: ${socket.id}`);
+        return;
+    }
 
-        const currentPlayerId = socket.id;
-        const player = game.players[currentPlayerId];
-        const playersInRoom = Object.keys(game.players);
+    const currentPlayerId = socket.id;
+    const player = game.players[currentPlayerId];
+    const playersInRoom = Object.keys(game.players);
 
-        const cardInPlayerHand = player.hand[cardIndex];
-        if (!cardInPlayerHand || cardInPlayerHand.played) {
-            socket.emit("gameError", "Carta non valida o già giocata.");
-            return;
-        }
+    const cardInPlayerHand = player.hand[cardIndex];
+    if (!cardInPlayerHand || cardInPlayerHand.played) {
+        socket.emit("gameError", "Carta non valida o già giocata.");
+        return;
+    }
 
-        if (!game.playOrder || game.currentTurnIndex === undefined) {
-            socket.emit("gameError", "Errore di sincronizzazione del turno.");
-            return;
-        }
+    if (!game.playOrder || game.currentTurnIndex === undefined) {
+        socket.emit("gameError", "Errore di sincronizzazione del turno.");
+        return;
+    }
 
-        const currentTurnPlayerId = game.playOrder[game.currentTurnIndex];
-        if (currentTurnPlayerId !== currentPlayerId) {
-            socket.emit("gameError", "Non è il tuo turno di giocare!");
-            return;
-        }
+    const currentTurnPlayerId = game.playOrder[game.currentTurnIndex];
+    if (currentTurnPlayerId !== currentPlayerId) {
+        socket.emit("gameError", "Non è il tuo turno di giocare!");
+        return;
+    }
 
-        player.playedCard = card;
-        player.playedCardIndex = cardIndex;
-        cardInPlayerHand.played = true;
+    player.playedCard = card;
+    player.playedCardIndex = cardIndex;
+    cardInPlayerHand.played = true;
 
-        io.to(roomCode).emit("playerPlayedCard", {
-            playerId: currentPlayerId,
-            card: card,
-            cardIndex: cardIndex
-        });
-
-        game.currentTurnIndex++;
-
-        if (game.currentTurnIndex === playersInRoom.length) {
-            console.log("Tutti i giocatori hanno giocato. Fine mano.");
-            await processPlayedCards(roomCode, io);
-        } else {
-            const nextPlayerId = game.playOrder[game.currentTurnIndex];
-            io.to(nextPlayerId).emit("yourTurnToPlay");
-        }
-
-        if (typeof matchesCollection !== 'undefined') {
-            try {
-                await matchesCollection.updateOne(
-                    { roomCode: roomCode },
-                    { $set: { gameState: game } }
-                );
-            } catch (error) {
-                console.error(`[SERVER ERROR] Errore salvando lo stato del gioco per la stanza ${roomCode}:`, error);
-            }
-        } else {
-            console.error("matchesCollection non inizializzata. Impossibile salvare lo stato.");
-        }
+    io.to(roomCode).emit("playerPlayedCard", {
+        playerId: currentPlayerId,
+        card: card,
+        cardIndex: cardIndex
     });
+
+    if (game.currentTurnIndex === playersInRoom.length - 1) { // Usa length - 1 perché l'indice parte da 0
+        console.log("Tutti i giocatori hanno giocato. Fine mano.");
+        await processPlayedCards(roomCode, io);
+    } 
+
+    if (typeof matchesCollection !== 'undefined') {
+        try {
+            await matchesCollection.updateOne(
+                { roomCode: roomCode },
+                { $set: { gameState: game } }
+            );
+        } catch (error) {
+            console.error(`[SERVER ERROR] Errore salvando lo stato del gioco per la stanza ${roomCode}:`, error);
+        }
+    } else {
+        console.error("matchesCollection non inizializzata. Impossibile salvare lo stato.");
+    }
+});
 
     // --- Gestione Disconnessione (con timeout) ---
     socket.on("disconnect", async () => {
@@ -761,6 +756,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
