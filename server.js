@@ -86,9 +86,6 @@ async function processPlayedCards(roomCode, io) {
     let game = gameStates[roomCode];
     if (!game) return;
 
-        // Inserisci questo log all'inizio di processPlayedCards
-console.log(`[LOG] ID dei giocatori in game.players:`, Object.keys(game.players));
-
     const playOrder = game.playOrder;
     const playersPlayedThisHand = playOrder.map(id => game.players[id]);
 
@@ -126,7 +123,6 @@ console.log(`[LOG] ID dei giocatori in game.players:`, Object.keys(game.players)
     
     // Rimuove le carte giocate dalla mano dei giocatori
     playersPlayedThisHand.forEach(p => {
-        p.hand = p.hand.filter(card => !card.played);
         p.playedCard = null;
         p.playedCardIndex = null;
     });
@@ -754,6 +750,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
