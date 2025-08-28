@@ -89,6 +89,9 @@ async function processPlayedCards(roomCode, io) {
     const playOrder = game.playOrder;
     const playersPlayedThisHand = playOrder.map(id => game.players[id]);
 
+      console.log(`[LOG] playOrder:`, playOrder);
+    console.log(`[LOG] playersPlayedThisHand:`, playersPlayedThisHand);
+
      if (playersPlayedThisHand.length === 0) {
         console.log(`[SERVER] playersPlayedThisHand è vuoto. Annullamento del processo.`);
         return; 
@@ -757,6 +760,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
