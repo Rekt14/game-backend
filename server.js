@@ -127,12 +127,13 @@ async function processPlayedCards(roomCode, io) {
         p.playedCardIndex = null;
     });
 
-    const allHandsEmpty = Object.values(game.players).every(p => p.hand.length === 0);
+    const allCardsPlayed = Object.values(game.players).every(p => p.revealedCardsCount === game.round);
 
-    if (allHandsEmpty) {
+    if (allCardsPlayed) {
         // Logica per la fine del round
         const scores = {};
         const bets = {};
+
 
         Object.values(game.players).forEach(p => {
             if (p.currentRoundWins === p.bet) {
@@ -161,7 +162,7 @@ async function processPlayedCards(roomCode, io) {
         Object.values(game.players).forEach(p => {
             p.bet = "";
             p.currentRoundWins = 0;
-            // 'revealedCardsCount' non è più necessario
+            p.revealedCardsCount = 0;
         });
         
         if (game.round >= 10) {
@@ -750,6 +751,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
