@@ -89,9 +89,6 @@ async function processPlayedCards(roomCode, io) {
     const playOrder = game.playOrder;
     const playersPlayedThisHand = playOrder.map(id => game.players[id]);
 
-      console.log(`[LOG] playOrder:`, playOrder);
-    console.log(`[LOG] playersPlayedThisHand:`, playersPlayedThisHand);
-
      if (playersPlayedThisHand.length === 0) {
         console.log(`[SERVER] playersPlayedThisHand è vuoto. Annullamento del processo.`);
         return; 
@@ -100,13 +97,18 @@ async function processPlayedCards(roomCode, io) {
     let winningCard = playersPlayedThisHand[0].playedCard;
     let handWinnerId = playersPlayedThisHand[0].socketId;
 
+      console.log(`[LOG] Valori iniziali - winningCard:`, winningCard, `handWinnerId:`, handWinnerId);
+
     for (let i = 1; i < playersPlayedThisHand.length; i++) {
         const currentCard = playersPlayedThisHand[i].playedCard;
         if (compareCards(currentCard, winningCard)) {
             winningCard = currentCard;
             handWinnerId = playersPlayedThisHand[i].socketId;
+            console.log(`[LOG] Trovata carta vincente, aggiornato! Nuovo handWinnerId:`, handWinnerId);
         }
     }
+
+     console.log(`[LOG] Valore finale di handWinnerId prima dell'aggiornamento:`, handWinnerId);
 
     game.players[handWinnerId].currentRoundWins++;
     game.firstToReveal = handWinnerId;
@@ -760,6 +762,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
