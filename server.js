@@ -127,6 +127,12 @@ async function processPlayedCards(roomCode, io) {
         p.playedCardIndex = null;
     });
 
+     console.log(`[LOG] Stato prima della verifica di fine round:`);
+    Object.values(game.players).forEach(p => {
+        console.log(` - Giocatore ${p.socketId}: revealedCardsCount = ${p.revealedCardsCount}`);
+    });
+    console.log(`[LOG] Valore del round: ${game.round}`);
+
     const allCardsPlayed = Object.values(game.players).every(p => p.revealedCardsCount === game.round);
 
     if (allCardsPlayed) {
@@ -641,6 +647,7 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
     cardInPlayerHand.played = true;
 
        player.revealedCardsCount++;
+       console.log(`[LOG] Giocatore ${currentPlayerId} ha giocato. revealedCardsCount: ${player.revealedCardsCount}`);
 
     io.to(roomCode).emit("playerPlayedCard", {
         playerId: currentPlayerId,
@@ -753,6 +760,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
