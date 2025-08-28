@@ -113,6 +113,13 @@ async function processPlayedCards(roomCode, io) {
         acc[p.socketId] = p.currentRoundWins;
         return acc;
     }, {});
+
+     io.to(roomCode).emit("handResult", {
+        winnerId: handWinnerId,
+        playedCards: playedCards,
+        wins: wins,
+        firstToReveal: game.firstToReveal
+    });
     
     // Rimuove le carte giocate dalla mano dei giocatori
     playersPlayedThisHand.forEach(p => {
@@ -529,7 +536,7 @@ socket.on("startRoundRequest", async () => {
                 round,
                 firstToReveal: firstPlayerForThisRound,
                 players: playersInRoom,
-                playOrder: playOrder, // Corretto: utilizza 'playOrder' che è definito
+                playOrder: playOrder, 
                 yourCards: allHands[player.socketId]
             };
 
@@ -643,7 +650,7 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
           game.currentTurnIndex++;
 
     // La logica di fine mano e inizio nuova mano è gestita qui
-    if (game.currentTurnIndex === playersInRoom.length - 1) { // Usa length - 1 perché l'indice parte da 0
+   if (game.currentTurnIndex === playersInRoom.length) {
         console.log("Tutti i giocatori hanno giocato. Fine mano.");
         await processPlayedCards(roomCode, io);
     }
@@ -745,6 +752,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
