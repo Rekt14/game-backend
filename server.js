@@ -640,6 +640,8 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
     player.playedCardIndex = cardIndex;
     cardInPlayerHand.played = true;
 
+       player.revealedCardsCount++;
+
     io.to(roomCode).emit("playerPlayedCard", {
         playerId: currentPlayerId,
         card: card,
@@ -751,6 +753,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
