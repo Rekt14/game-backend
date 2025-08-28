@@ -83,10 +83,11 @@ function compareCards(c1, c2) {
 }
 
 async function processPlayedCards(roomCode, io) {
-    // Inserisci questo log all'inizio di processPlayedCards
-console.log(`[LOG] ID dei giocatori in game.players:`, Object.keys(game.players));
     let game = gameStates[roomCode];
     if (!game) return;
+
+        // Inserisci questo log all'inizio di processPlayedCards
+console.log(`[LOG] ID dei giocatori in game.players:`, Object.keys(game.players));
 
     const playOrder = game.playOrder;
     const playersPlayedThisHand = playOrder.map(id => game.players[id]);
@@ -754,6 +755,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
