@@ -515,7 +515,7 @@ socket.on("startRoundRequest", async () => {
             pCards.forEach(card => card.played = false);
 
             if (!game.players[player.socketId]) {
-                game.players[player.socketId] = { name: player.name, score: 0 };
+                game.players[player.socketId] = { name: player.name, score: 0, socketId: player.socketId };
             }
             game.players[player.socketId].hand = pCards;
             game.players[player.socketId].bet = "";
@@ -552,7 +552,6 @@ socket.on("startRoundRequest", async () => {
             }
             io.to(player.socketId).emit("startRoundData", dataToSend);
         }
-        console.log(`🎯 Round ${round} avviato nella stanza ${roomCode}. Inizia: ${firstPlayerForThisRound}`);
     } else {
         io.to(roomCode).emit("waitingForPlayersReady", {
             playersReady: game.nextRoundReadyCount,
@@ -608,7 +607,7 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
             currentTurnIndex: game.currentTurnIndex,
         });
 
-        console.log(`✅ Tutte le scommesse piazzate nella stanza ${roomCode}. Inizio gioco carte.`);
+        console.log(`✅ Tutte le scommesse piazzate nella stanza ${roomCode}.`);
     } else {
         // Altrimenti, invia un aggiornamento parziale
         const nextPlayerId = game.playOrder[playersWithBets.length];
@@ -755,6 +754,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
