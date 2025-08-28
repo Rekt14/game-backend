@@ -127,12 +127,6 @@ async function processPlayedCards(roomCode, io) {
         p.playedCardIndex = null;
     });
 
-     console.log(`[LOG] Stato prima della verifica di fine round:`);
-    Object.values(game.players).forEach(p => {
-        console.log(` - Giocatore ${p.socketId}: revealedCardsCount = ${p.revealedCardsCount}`);
-    });
-    console.log(`[LOG] Valore del round: ${game.round}`);
-
     const allCardsPlayed = Object.values(game.players).every(p => p.revealedCardsCount === game.round);
 
     if (allCardsPlayed) {
@@ -657,11 +651,13 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
 
           game.currentTurnIndex++;
 
-    // La logica di fine mano e inizio nuova mano è gestita qui
-   if (game.currentTurnIndex === playersInRoom.length) {
-        console.log("Tutti i giocatori hanno giocato. Fine mano.");
-        await processPlayedCards(roomCode, io);
-    }
+    // La logica di fine mano e inizio nuova mano
+const allPlayersPlayedThisHand = Object.values(game.players).every(p => p.playedCard !== null); //Verifica che tutti abbiano giocato
+
+if (allPlayersPlayedThisHand) {
+    await processPlayedCards(roomCode, io);
+    game.currentTurnIndex = 0;
+}
 
     if (typeof matchesCollection !== 'undefined') {
         try {
@@ -760,6 +756,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
