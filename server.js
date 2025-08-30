@@ -74,7 +74,6 @@ const suitStrength = {
 };
 
 function compareCards(c1, c2) {
-    console.log("Confronto:", c1, "vs", c2);
     const v1 = valuePoints[c1.value];
     const v2 = valuePoints[c2.value];
     if (v1 === v2) {
@@ -756,6 +755,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
