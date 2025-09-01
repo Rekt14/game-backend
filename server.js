@@ -51,6 +51,35 @@ function findRoomBySocketId(socketId) {
     return null;
 }
 
+socket.on("voteBella11", (vote) => {
+    const roomCode = getRoomCode(socket.id);
+    const game = gameStates[roomCode];
+
+    if (game && game.round === 10) {
+        // 1. Registra il voto del giocatore
+        game.bella11Votes[socket.id] = vote;
+
+        // 2. Prepara la lista completa dei voti
+        const allVotes = Object.keys(game.players).map(playerId => ({
+            playerId: playerId,
+            vote: game.bella11Votes[playerId]
+        }));
+
+        // 3. Notifica tutti i giocatori inviando la lista completa
+        io.to(roomCode).emit("bella11VoteUpdated", {
+            votes: allVotes // Invia la lista completa
+        });
+
+        // 4. Controlla se tutti hanno votato 'Sì' per la conferma finale
+        const players = Object.keys(game.players);
+        const allVotedYes = players.every(pId => game.bella11Votes[pId] === true);
+        if (allVotedYes) {
+            game.isBella11Active = true;
+            io.to(roomCode).emit("bella11Confirmed");
+        }
+    }
+});
+
 // Funzione helper per creare e mescolare un mazzo
 function createAndShuffleDeck() {
     const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
@@ -164,7 +193,7 @@ async function processPlayedCards(roomCode, io) {
             p.revealedCardsCount = 0;
         });
         
-        if (game.round >= 10) {
+        if (game.round >= 10 && !game.isBella11Active) {
             io.to(roomCode).emit("gameOver", { finalScores: scores });
             delete gameStates[roomCode];
         }
@@ -462,7 +491,7 @@ io.on("connection", (socket) => {
     });
 
     // =========================================================
-    //  5. LOGICA DI GIOCO (SPOSTATA)
+    //  5. LOGICA DI GIOCO
     // =========================================================
 socket.on("startRoundRequest", async () => {
     const roomCode = socket.data?.roomCode;
@@ -475,6 +504,8 @@ socket.on("startRoundRequest", async () => {
             players: {},
             nextRoundReadyCount: 0,
             lastRoundWinner: null,
+            bella11Votes: {},
+            isBella11Active: false
         };
         gameStates[roomCode] = game;
     }
@@ -491,6 +522,11 @@ socket.on("startRoundRequest", async () => {
         game.nextRoundReadyCount = 0;
         const round = game.round + 1;
         const deck = createAndShuffleDeck();
+
+          if (game.round === 11) {
+        game.isBella11Active = false;
+        game.bella11Votes = {}; // E resetta anche i voti
+    }
 
         let firstPlayerForThisRound;
         if (game.lastRoundWinner) {
@@ -755,6 +791,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
