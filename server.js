@@ -42,15 +42,6 @@ async function connectToDatabase() {
     console.log("✅ Connesso a MongoDB");
 }
 
-function findRoomBySocketId(socketId) {
-    for (const roomCode in gameStates) {
-        if (gameStates[roomCode].players.hasOwnProperty(socketId)) {
-            return roomCode;
-        }
-    }
-    return null;
-}
-
 // Funzione helper per creare e mescolare un mazzo
 function createAndShuffleDeck() {
     const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
@@ -218,6 +209,15 @@ app.get("/online-players", async (req, res) => {
 io.on("connection", (socket) => {
     console.log("🟢 Connessione socket:", socket.id);
     let heartbeatInterval;
+
+        function findRoomBySocketId(socketId) {
+    for (const roomCode in gameStates) {
+        if (gameStates[roomCode].players.hasOwnProperty(socketId)) {
+            return roomCode;
+        }
+    }
+    return null;
+}
 
     // --- Gestione della Riconnessione ---
     if (disconnectionTimers[socket.id]) {
@@ -792,6 +792,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
