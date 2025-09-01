@@ -51,35 +51,6 @@ function findRoomBySocketId(socketId) {
     return null;
 }
 
-socket.on("voteBella11", (vote) => {
-    const roomCode = getRoomCode(socket.id);
-    const game = gameStates[roomCode];
-
-    if (game && game.round === 10) {
-        // 1. Registra il voto del giocatore
-        game.bella11Votes[socket.id] = vote;
-
-        // 2. Prepara la lista completa dei voti
-        const allVotes = Object.keys(game.players).map(playerId => ({
-            playerId: playerId,
-            vote: game.bella11Votes[playerId]
-        }));
-
-        // 3. Notifica tutti i giocatori inviando la lista completa
-        io.to(roomCode).emit("bella11VoteUpdated", {
-            votes: allVotes // Invia la lista completa
-        });
-
-        // 4. Controlla se tutti hanno votato 'Sì' per la conferma finale
-        const players = Object.keys(game.players);
-        const allVotedYes = players.every(pId => game.bella11Votes[pId] === true);
-        if (allVotedYes) {
-            game.isBella11Active = true;
-            io.to(roomCode).emit("bella11Confirmed");
-        }
-    }
-});
-
 // Funzione helper per creare e mescolare un mazzo
 function createAndShuffleDeck() {
     const suits = ["Denari", "Spade", "Bastoni", "Coppe"];
@@ -653,6 +624,36 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
     }
 });
 
+    // GESTIONE VOTO BELLA11
+    socket.on("voteBella11", (vote) => {
+    const roomCode = getRoomCode(socket.id);
+    const game = gameStates[roomCode];
+
+    if (game && game.round === 10) {
+        // 1. Registra il voto del giocatore
+        game.bella11Votes[socket.id] = vote;
+
+        // 2. Prepara la lista completa dei voti
+        const allVotes = Object.keys(game.players).map(playerId => ({
+            playerId: playerId,
+            vote: game.bella11Votes[playerId]
+        }));
+
+        // 3. Notifica tutti i giocatori inviando la lista completa
+        io.to(roomCode).emit("bella11VoteUpdated", {
+            votes: allVotes // Invia la lista completa
+        });
+
+        // 4. Controlla se tutti hanno votato 'Sì' per la conferma finale
+        const players = Object.keys(game.players);
+        const allVotedYes = players.every(pId => game.bella11Votes[pId] === true);
+        if (allVotedYes) {
+            game.isBella11Active = true;
+            io.to(roomCode).emit("bella11Confirmed");
+        }
+    }
+});
+
     // =========================================================
     //  6. LOGICA GESTIONE CARTE AVVERSARI (SPOSTATA)
     // =========================================================
@@ -791,6 +792,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
