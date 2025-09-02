@@ -627,7 +627,7 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
 
     // GESTIONE VOTO BELLA11
     socket.on("voteBella11", (vote) => {
-    const roomCode = getRoomCode(socket.id);
+      const roomCode = findRoomBySocketId(socket.id);
     const game = gameStates[roomCode];
 
     if (game && game.round === 10) {
@@ -794,3 +794,4 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
