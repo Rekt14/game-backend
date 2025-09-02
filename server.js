@@ -17,7 +17,7 @@ const io = new Server(server, {
 const gameStates = {};
 const pendingInvitations = {};
 const disconnectionTimers = {};
-const DISCONNECTION_TIMEOUT = 45000; // 60 secondi per la riconnessione
+const DISCONNECTION_TIMEOUT = 60000; // 60 secondi per la riconnessione
 
 // Setup del database
 const uri = process.env.MONGO_URI;
@@ -157,7 +157,8 @@ async function processPlayedCards(roomCode, io) {
         
         if (game.round >= 10 && !game.isBella11Active) {
             io.to(roomCode).emit("gameOver", { finalScores: scores });
-            delete gameStates[roomCode];
+             delete gameStates[roomCode];
+    await matchesCollection.deleteOne({ roomCode });
         }
     } else {
         // Logica per la fine della mano ma non del round
@@ -610,7 +611,7 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
             currentTurnIndex: game.currentTurnIndex,
         });
 
-        console.log(`✅ Tutte le scommesse piazzate nella stanza ${roomCode}.`);
+       // console.log(`✅ Tutte le scommesse piazzate nella stanza ${roomCode}.`);
     } else {
         // Altrimenti, invia un aggiornamento parziale
         const nextPlayerId = game.playOrder[playersWithBets.length];
@@ -620,7 +621,7 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
             nextPlayerId: nextPlayerId
         });
 
-        console.log(`➡️ Scommessa piazzata da ${game.players[socket.id].name}. Prossimo a scommettere: ${game.players[nextPlayerId].name}`);
+       // console.log(`➡️ Scommessa piazzata da ${game.players[socket.id].name}. Prossimo a scommettere: ${game.players[nextPlayerId].name}`);
     }
 });
 
@@ -655,7 +656,7 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
 });
 
     // =========================================================
-    //  6. LOGICA GESTIONE CARTE AVVERSARI (SPOSTATA)
+    //  6. LOGICA GESTIONE CARTE AVVERSARI
     // =========================================================
    socket.on("playerCardPlayed", async ({ roomCode, card, cardIndex }) => {
     let game = gameStates[roomCode];
@@ -677,7 +678,7 @@ socket.on("playerBet", async ({ roomCode, bet }) => {
     cardInPlayerHand.played = true;
 
        player.revealedCardsCount++;
-       console.log(`[LOG] Giocatore ${currentPlayerId} ha giocato. revealedCardsCount: ${player.revealedCardsCount}`);
+     //  console.log(`[LOG] Giocatore ${currentPlayerId} ha giocato. revealedCardsCount: ${player.revealedCardsCount}`);
 
     io.to(roomCode).emit("playerPlayedCard", {
         playerId: currentPlayerId,
@@ -709,7 +710,9 @@ if (allPlayersPlayedThisHand) {
     }
 });
 
-    // --- Gestione Disconnessione (con timeout) ---
+    // =========================================================
+    //  7. GESTIONE DISCONNESSIONE
+    // =========================================================
     socket.on("disconnect", async () => {
         console.log("🔴 Disconnessione:", socket.id);
         clearInterval(heartbeatInterval);
@@ -731,10 +734,10 @@ if (allPlayersPlayedThisHand) {
 
         const roomCode = findRoomBySocketId(socket.id);
         if (roomCode) {
-            console.log(`[DISCONNECT] Avviato timer di disconnessione per il giocatore ${socket.id} nella stanza ${roomCode}.`);
+          //  console.log(`[DISCONNECT] Avviato timer di disconnessione per il giocatore ${socket.id} nella stanza ${roomCode}.`);
             disconnectionTimers[socket.id] = setTimeout(async () => {
                 try {
-                    console.log(`[DISCONNECT] Timeout scaduto per ${socket.id}. Procedo con la rimozione.`);
+                  //  console.log(`[DISCONNECT] Timeout scaduto per ${socket.id}. Procedo con la rimozione.`);
                     const playerInDb = await onlinePlayersCollection.findOne({ socketId: socket.id });
                     if (playerInDb) {
                         await onlinePlayersCollection.updateOne({ socketId: socket.id }, { $set: { isInGame: false } });
@@ -747,17 +750,16 @@ if (allPlayersPlayedThisHand) {
                         if (otherPlayer) {
                             await onlinePlayersCollection.updateOne({ socketId: otherPlayer.socketId }, { $set: { isInGame: false } });
                             io.to(otherPlayer.socketId).emit("opponentDisconnected", { roomCode });
-                            console.log(`📢 Avversario ${otherPlayer.name} notificato della disconnessione di ${socket.data?.name || socket.id}.`);
+                           // console.log(`📢 Avversario ${otherPlayer.name} notificato della disconnessione di ${socket.data?.name || socket.id}.`);
                         }
                     }
                     await matchesCollection.updateOne({ roomCode }, { $pull: { players: { socketId: socket.id } } });
                     const updatedRoom = await matchesCollection.findOne({ roomCode });
-                    if (!updatedRoom || updatedRoom.players.length === 0) {
+                    if (!updatedRoom || updatedRoom.players.length < 2) {
                         await matchesCollection.deleteOne({ roomCode });
                         console.log(`🗑️ Stanza ${roomCode} eliminata (vuota)`);
                         if (gameStates[roomCode]) {
                             delete gameStates[roomCode];
-                            console.log(`🗑️ Stato del gioco per stanza ${roomCode} eliminato.`);
                         }
                     }
                 } catch (err) {
@@ -792,35 +794,3 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
