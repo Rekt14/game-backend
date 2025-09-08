@@ -505,18 +505,6 @@ socket.on("startRoundRequest", async () => {
         const round = game.round + 1;
         const deck = createAndShuffleDeck();
 
-        // Aggiungi questo console.log per verificare lo stato
-    console.log(`[startRoundRequest] Stanza: ${roomCode}, Round attuale: ${game?.round}, Bella11Active: ${game?.isBella11Active}`);
-
-          if (game.round === 11) {
-        game.isBella11Active = false;
-        game.bella11Votes = {}; // E resetta anche i voti
-    }
-
-         
-    // Aggiungi questo console.log dopo la modifica
-    console.log(`[startRoundRequest] Dopo la modifica - Stanza: ${roomCode}, Round: ${game.round}, Bella11Active: ${game.isBella11Active}`);
-
 
         let firstPlayerForThisRound;
         if (game.lastRoundWinner) {
@@ -529,6 +517,11 @@ socket.on("startRoundRequest", async () => {
         game.round = round;
         game.firstToReveal = firstPlayerForThisRound;
         game.lastRoundWinner = null;
+
+                  if (game.round === 11) {
+        game.isBella11Active = false;
+        game.bella11Votes = {}; // E resetta anche i voti
+    }
 
         const playersInRoom = room.players;
         const allHands = {};
@@ -812,6 +805,7 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
 
 
