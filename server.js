@@ -228,6 +228,16 @@ io.on("connection", (socket) => {
         socket.emit("reconnected");
     }
 
+    // Gestore per l'evento 'forceRound10'
+socket.on('forceRound10', () => {
+    // Aggiorna il round del gioco a 9 per far partire il round 10 al prossimo avvio
+    const roomCode = socket.data.roomCode;
+    if (gameStates[roomCode]) {
+        gameStates[roomCode].round = 9;
+        console.log(`Il round della stanza ${roomCode} è stato impostato a 9.`);
+    }
+});
+
     // --- Registrazione Giocatore ---
     socket.on("registerPlayer", async (name) => {
         const existingPlayer = await onlinePlayersCollection.findOne({ socketId: socket.id });
@@ -794,4 +804,5 @@ connectToDatabase().then(() => {
 }).catch(err => {
     console.error("❌ Errore durante l'avvio del server o la connessione al DB:", err);
 });
+
 
